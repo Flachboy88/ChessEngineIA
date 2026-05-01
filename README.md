@@ -7,7 +7,7 @@ Moteur d'échecs haute performance en Java avec représentation **bitboard**, co
 ```
 ChessOptiIa/
 ├── src/
-│   ├── main/java/com/chessoptia/
+│   ├── main/java/
 │   │   ├── core/         # Moteur bitboard
 │   │   │   ├── Bitboard.java        — Constantes et utilitaires bit
 │   │   │   └── BitboardState.java   — État complet (12 BBs + flags)
@@ -31,7 +31,7 @@ ChessOptiIa/
 │   │   │   └── RandomAIPlayer.java — IA aléatoire (tests)
 │   │   └── api/          # Surcouche haut niveau
 │   │       └── ChessAPI.java       — Façade principale
-│   └── test/java/com/chessoptia/
+│   └── test/java/
 │       └── ChessEngineTest.java    — Tests JUnit 5 complets
 ├── lib/                  # JARs JUnit 5 (voir lib/README.md)
 │   └── README.md
