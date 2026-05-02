@@ -1,8 +1,9 @@
-package player;
+package player.classical;
 
 import game.GameState;
 import model.Color;
 import model.Move;
+import player.Player;
 
 /**
  * Joueur humain.

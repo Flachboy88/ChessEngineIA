@@ -39,6 +39,9 @@ public final class ChessAPI {
         return gameState.getSideToMove() == Color.WHITE ? whitePlayer : blackPlayer;
     }
 
+    /** Alias francophone de {@link #getCurrentPlayer()}. */
+    public Player getJoueurActuel() { return getCurrentPlayer(); }
+
     public Move jouerCoupJoueur() {
         Player player = getCurrentPlayer();
         if (player == null) throw new IllegalStateException("Aucun joueur configuré pour ce camp.");

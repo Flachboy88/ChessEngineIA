@@ -22,9 +22,8 @@ import javafx.util.Duration;
 import model.Move;
 import model.Piece;
 import model.Square;
-import player.HumanPlayer;
+import player.classical.HumanPlayer;
 import player.Player;
-import rules.MoveGenerator;
 
 import java.io.IOException;
 import java.util.List;

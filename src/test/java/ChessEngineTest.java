@@ -1,12 +1,16 @@
 import api.ChessAPI;
+import engine.evaluation.PositionEvaluator;
+import engine.search.AlphaBetaSearch;
 import game.FenParser;
 import game.GameResult;
+import game.GameState;
 import model.Color;
 import model.Move;
 import model.Piece;
 import model.Square;
 import org.junit.jupiter.api.*;
-import player.RandomAIPlayer;
+import player.classical.AlphaBetaPlayer;
+import player.classical.RandomAIPlayer;
 
 import java.util.List;
 
@@ -151,15 +155,6 @@ class ChessEngineTest {
         @Test @DisplayName("Roque déplace aussi la tour")
         void roqueDeplaceRook() {
             ChessAPI api = new ChessAPI("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1");
-            System.out.println("=== DEBUG roqueDeplaceRook ===");
-            System.out.println(api.afficherEchiquier());
-            var coupsE1 = api.getCoups(Square.E1);
-            System.out.println("Coups depuis E1 (" + coupsE1.size() + ") : " + coupsE1);
-            var tousLesCoups = api.getCoupsLegaux();
-            System.out.println("Tous coups légaux (" + tousLesCoups.size() + ") :");
-            tousLesCoups.forEach(m -> System.out.println("  " + m + " castling=" + m.isCastling() + " promo=" + m.isPromotion() + " ep=" + m.isEnPassant()));
-            System.out.println("Droits de roque : " + api.getBitboardState().getCastlingRights());
-            System.out.println("En échec : " + api.estEnEchec());
             api.jouerCoup("e1g1");
             assertNotNull(api.getBitboardState().getPieceAt(Square.F1), "La tour doit être en f1");
             assertNull(api.getBitboardState().getPieceAt(Square.H1), "La tour ne doit plus être en h1");
@@ -214,20 +209,8 @@ class ChessEngineTest {
 
         @Test @DisplayName("Pat — aucun coup légal, pas en échec")
         void stalemate() {
-            System.out.println("=== DEBUG stalemate ===");
-            // Position de pat prouvée :
-            // Roi blanc en a1, roi noir en a3, tour noire en b8.
-            // Ka1 : a2 est contrôlé par Ka3, b1 et b2 sont contrôlés par Rb8 → 0 coups, pas en échec.
             ChessAPI api = new ChessAPI("1r6/8/8/8/8/k7/8/K7 w - - 0 1");
-            System.out.println(api.afficherEchiquier());
             var coups = api.getCoupsLegaux();
-            System.out.println("Coups légaux (" + coups.size() + ") : " + coups);
-            System.out.println("En échec : " + api.estEnEchec());
-            // Vérifier où sont réellement les pièces
-            for (var sq : Square.values()) {
-                var p = api.getBitboardState().getPieceAt(sq);
-                if (p != null) System.out.println("  " + sq + " -> " + p.color() + " " + p.piece());
-            }
             assertEquals(0, coups.size(), "Aucun coup légal");
             assertFalse(api.estEnEchec(), "Pas en échec");
             assertEquals(GameResult.STALEMATE, api.getEtatPartie());
@@ -312,8 +295,6 @@ class ChessEngineTest {
         @Test @DisplayName("Undo après roque")
         void undoRoque() {
             ChessAPI api = new ChessAPI("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1");
-            System.out.println("=== DEBUG undoRoque ===");
-            System.out.println("Coups E1 : " + api.getCoups(Square.E1));
             String avant = api.toFEN();
             api.jouerCoup("e1g1"); api.undo();
             assertEquals(avant, api.toFEN());
@@ -363,6 +344,140 @@ class ChessEngineTest {
                 assertFalse(fork.estEnEchec() && fork.getCampActif() == Color.WHITE,
                     "Le coup " + m + " laisse le roi blanc en échec");
             }
+        }
+    }
+
+    // =========================================================================
+    // 9. IA AlphaBeta
+    // =========================================================================
+
+    @Nested @DisplayName("9. IA AlphaBeta")
+    class AlphaBetaTests {
+
+        // ── Évaluateur ──────────────────────────────────────────────────────
+
+        @Test @DisplayName("Score symétrique en position initiale (doit être ~0)")
+        void scoreSymetriePositionInitiale() {
+            ChessAPI api = new ChessAPI();
+            int score = PositionEvaluator.evaluate(api.getBitboardState());
+            // La position initiale est parfaitement symétrique → score attendu = 0
+            assertEquals(0, score, "La position initiale doit être évaluée à 0 (symétrie)");
+        }
+
+        @Test @DisplayName("evaluateFor retourne l'opposé selon le camp")
+        void evaluateForCohérence() {
+            ChessAPI api = new ChessAPI("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1");
+            int white = PositionEvaluator.evaluateFor(api.getBitboardState(), Color.WHITE);
+            int black = PositionEvaluator.evaluateFor(api.getBitboardState(), Color.BLACK);
+            assertEquals(white, -black, "evaluateFor(WHITE) doit être l'opposé de evaluateFor(BLACK)");
+        }
+
+        @Test @DisplayName("Avantage matériel détecté (Blancs ont une dame de plus)")
+        void avantageMatériel() {
+            // Blancs : roi + dame. Noirs : roi seul.
+            ChessAPI api = new ChessAPI("4k3/8/8/8/8/8/8/3QK3 w - - 0 1");
+            int score = PositionEvaluator.evaluate(api.getBitboardState());
+            assertTrue(score > 800, "Les Blancs doivent avoir un score > 800 (valeur d'une dame)");
+        }
+
+        @Test @DisplayName("Phase de jeu : initiale ≈ 1.0 (ouverture)")
+        void phaseJeuInitiale() {
+            double phase = PositionEvaluator.gamePhase(new ChessAPI().getBitboardState());
+            assertEquals(1.0, phase, 0.05, "Phase initiale doit être proche de 1.0");
+        }
+
+        @Test @DisplayName("Phase de jeu : rois seuls ≈ 0.0 (finale)")
+        void phaseJeuFinale() {
+            double phase = PositionEvaluator.gamePhase(
+                new ChessAPI("4k3/8/8/8/8/8/8/4K3 w - - 0 1").getBitboardState());
+            assertEquals(0.0, phase, 0.01, "Phase finale (rois seuls) doit être 0.0");
+        }
+
+        // ── AlphaBeta — détection de coups tactiques ────────────────────────
+
+        @Test @DisplayName("AlphaBeta prend une pièce gratuite (prise évidente)")
+        void prendPieceGratuite() {
+            // Tour noire en e5 sans défenseur, blanc joue. Le tour blanc en e1 peut prendre.
+            ChessAPI api = new ChessAPI("4k3/8/8/4r3/8/8/8/4R1K1 w - - 0 1");
+            GameState gs = new GameState(api.getBitboardState());
+            Move best = AlphaBetaSearch.chercherMeilleurCoup(gs, 2);
+            // e1e5 = prise de la tour noire
+            assertEquals(Square.E5, best.to(), "L'IA doit prendre la tour noire gratuite en e5");
+        }
+
+        @Test @DisplayName("AlphaBeta donne échec et mat en 1")
+        void matEnUn() {
+            // Dame blanche en h5, doit aller en f7 pour mat (Fool's Mate type)
+            // Position : mat en 1 — Qh5-f7#
+            ChessAPI api = new ChessAPI("r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4");
+            GameState gs = new GameState(api.getBitboardState());
+            Move best = AlphaBetaSearch.chercherMeilleurCoup(gs, 3);
+            assertEquals(Square.F7, best.to(), "L'IA doit jouer Dh5xf7# (mat en 1)");
+        }
+
+        @Test @DisplayName("AlphaBeta évite de perdre sa dame sans raison")
+        void evitePerdreDame() {
+            // Dame blanche en d1. Tour noire en d8 attaque d1 — l'IA ne doit pas laisser prendre.
+            // Blancs ont un pion en d2 qui bloque, donc la dame est safe, mais on vérifie
+            // que l'IA ne joue pas un coup suicidaire.
+            ChessAPI api = new ChessAPI("3r4/8/8/8/8/8/3P4/3QK3 w - - 0 1");
+            GameState gs = new GameState(api.getBitboardState());
+            Move best = AlphaBetaSearch.chercherMeilleurCoup(gs, 3);
+            // La dame ne doit pas aller en d8 (tour noire l'attendrait)
+            assertNotEquals("d1d8", best.toUci(),
+                "L'IA ne doit pas sacrifier sa dame sur d8 sans compensation");
+        }
+
+        @Test @DisplayName("AlphaBetaPlayer instanciable et joue un coup légal")
+        void alphaPlayerJoueCoupLegal() {
+            var ia = new AlphaBetaPlayer(Color.WHITE, 3);
+            ChessAPI api = new ChessAPI();
+            Move coup = ia.getNextMove(new GameState(api.getBitboardState()));
+            assertNotNull(coup, "L'IA doit retourner un coup");
+            assertTrue(api.getCoupsLegaux().contains(coup),
+                "Le coup joué doit être légal : " + coup);
+        }
+
+        @Test @DisplayName("AlphaBetaPlayer depth=4 joue un coup légal depuis position initiale")
+        void alphaPlayerDepth4() {
+            var ia = new AlphaBetaPlayer(Color.WHITE);  // depth=4
+            GameState gs = new GameState();
+            Move coup = ia.getNextMove(gs);
+            assertNotNull(coup);
+            assertTrue(gs.getLegalMoves().contains(coup),
+                "Le coup joué doit être dans les coups légaux : " + coup);
+        }
+
+        @Test @DisplayName("AlphaBeta vs Random : AlphaBeta gagne ou fait nul en 200 coups")
+        void alphaBeatRandom() {
+            // Test de régression : l'IA AlphaBeta doit battre RandomAI la plupart du temps
+            var white = new AlphaBetaPlayer(Color.WHITE, 3);
+            var black = new RandomAIPlayer(Color.BLACK);
+            ChessAPI api = new ChessAPI();
+            api.setWhitePlayer(white);
+            api.setBlackPlayer(black);
+
+            int maxMoves = 200, moves = 0;
+            while (!api.estTerminee() && moves < maxMoves) {
+                api.jouerCoupJoueur();
+                moves++;
+            }
+
+            GameResult result = api.getEtatPartie();
+            assertNotEquals(GameResult.BLACK_WINS, result,
+                "AlphaBeta (Blancs) ne devrait pas perdre contre Random en " + moves + " coups. Résultat : " + result);
+        }
+
+        @Test @DisplayName("getProfondeur retourne la profondeur configurée")
+        void getProfondeur() {
+            assertEquals(4, new AlphaBetaPlayer(Color.WHITE).getProfondeur());
+            assertEquals(2, new AlphaBetaPlayer(Color.BLACK, 2).getProfondeur());
+        }
+
+        @Test @DisplayName("AlphaBetaPlayer refuse une profondeur < 1")
+        void profondeurInvalide() {
+            assertThrows(IllegalArgumentException.class,
+                () -> new AlphaBetaPlayer(Color.WHITE, 0));
         }
     }
 }

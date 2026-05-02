@@ -9,9 +9,9 @@
            xmlns:fx="http://javafx.com/fxml/1"
            fx:controller="ui.controller.AccueilController"
            styleClass="bg-pane"
-           prefWidth="1024" prefHeight="768">
+           prefWidth="1024" prefHeight="950">
 
-    <!-- Fond dégradé + grille déco -->
+    <!-- Fond dégradé -->
     <VBox styleClass="bg-pane" prefWidth="780" prefHeight="620">
         <padding><Insets top="0" right="0" bottom="0" left="0"/></padding>
     </VBox>
@@ -60,30 +60,54 @@
             <!-- Section : Configuration Blanc -->
             <VBox fx:id="configBlanc" spacing="8">
                 <Label text="JOUEUR BLANC" styleClass="section-label"/>
+
+                <!-- Nom -->
                 <HBox spacing="8" alignment="CENTER_LEFT">
-                    <Label text="Nom :" styleClass="info-value-dim" prefWidth="60"/>
+                    <Label text="Nom :" styleClass="info-value-dim" prefWidth="80"/>
                     <TextField fx:id="nomBlanc" promptText="Ex : Alice"
                                styleClass="text-field-chess" HBox.hgrow="ALWAYS"/>
                 </HBox>
-                <HBox fx:id="rowIABlanc" spacing="8" alignment="CENTER_LEFT">
-                    <Label text="IA :" styleClass="info-value-dim" prefWidth="60"/>
+
+                <!-- Type d'IA (visible seulement en mode IA) -->
+                <HBox fx:id="rowIABlanc" spacing="8" alignment="CENTER_LEFT" visible="false" managed="false">
+                    <Label text="IA :" styleClass="info-value-dim" prefWidth="80"/>
                     <ComboBox fx:id="iaBlanc" styleClass="combo-style"
                               HBox.hgrow="ALWAYS" maxWidth="1e30"/>
+                </HBox>
+
+                <!-- Profondeur AlphaBeta Blanc (visible seulement si AlphaBeta sélectionné) -->
+                <HBox fx:id="rowDepthBlanc" spacing="8" alignment="CENTER_LEFT" visible="false" managed="false">
+                    <Label text="Profondeur :" styleClass="info-value-dim" prefWidth="80"/>
+                    <Spinner fx:id="depthBlanc" styleClass="spinner-chess"
+                             prefWidth="80" min="1" max="8"/>
+                    <Label text="(1–8 demi-coups, défaut=4)" styleClass="info-value-dim"/>
                 </HBox>
             </VBox>
 
             <!-- Section : Configuration Noir -->
             <VBox fx:id="configNoir" spacing="8">
                 <Label text="JOUEUR NOIR" styleClass="section-label"/>
+
+                <!-- Nom -->
                 <HBox spacing="8" alignment="CENTER_LEFT">
-                    <Label text="Nom :" styleClass="info-value-dim" prefWidth="60"/>
+                    <Label text="Nom :" styleClass="info-value-dim" prefWidth="80"/>
                     <TextField fx:id="nomNoir" promptText="Ex : Bob"
                                styleClass="text-field-chess" HBox.hgrow="ALWAYS"/>
                 </HBox>
-                <HBox fx:id="rowIANoir" spacing="8" alignment="CENTER_LEFT">
-                    <Label text="IA :" styleClass="info-value-dim" prefWidth="60"/>
+
+                <!-- Type d'IA (visible seulement en mode IA) -->
+                <HBox fx:id="rowIANoir" spacing="8" alignment="CENTER_LEFT" visible="false" managed="false">
+                    <Label text="IA :" styleClass="info-value-dim" prefWidth="80"/>
                     <ComboBox fx:id="iaNoir" styleClass="combo-style"
                               HBox.hgrow="ALWAYS" maxWidth="1e30"/>
+                </HBox>
+
+                <!-- Profondeur AlphaBeta Noir (visible seulement si AlphaBeta sélectionné) -->
+                <HBox fx:id="rowDepthNoir" spacing="8" alignment="CENTER_LEFT" visible="false" managed="false">
+                    <Label text="Profondeur :" styleClass="info-value-dim" prefWidth="80"/>
+                    <Spinner fx:id="depthNoir" styleClass="spinner-chess"
+                             prefWidth="80" min="1" max="8"/>
+                    <Label text="(1–8 demi-coups, défaut=4)" styleClass="info-value-dim"/>
                 </HBox>
             </VBox>
 

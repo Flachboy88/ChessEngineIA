@@ -37,7 +37,7 @@ public final class MoveGenerator {
     public static List<Move> generateLegalMovesFrom(BitboardState state, Square from) {
         return generateLegalMoves(state).stream()
             .filter(m -> m.from() == from)
-            .toList();
+            .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
     }
 
     /**

@@ -1,8 +1,9 @@
-package player;
+package player.classical;
 
 import game.GameState;
 import model.Color;
 import model.Move;
+import player.AIPlayer;
 
 import java.util.List;
 import java.util.Random;
