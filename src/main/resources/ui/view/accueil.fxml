@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.text.*?>
+<?import javafx.geometry.*?>
+
+<StackPane xmlns="http://javafx.com/javafx/17"
+           xmlns:fx="http://javafx.com/fxml/1"
+           fx:controller="ui.controller.AccueilController"
+           styleClass="bg-pane"
+           prefWidth="1024" prefHeight="768">
+
+    <!-- Fond dégradé + grille déco -->
+    <VBox styleClass="bg-pane" prefWidth="780" prefHeight="620">
+        <padding><Insets top="0" right="0" bottom="0" left="0"/></padding>
+    </VBox>
+
+    <!-- Contenu centré -->
+    <VBox alignment="CENTER" spacing="0" maxWidth="550">
+
+        <!-- ── En-tête logo + titre ── -->
+        <VBox alignment="CENTER" spacing="8">
+            <padding><Insets top="40" right="0" bottom="0" left="0"/></padding>
+            <Label text="♛" styleClass="logo-piece"/>
+            <Label text="CHESS OPTI IA" styleClass="app-title"/>
+            <Label text="Moteur d'échecs haute performance" styleClass="app-subtitle"/>
+        </VBox>
+
+        <!-- Séparateur doré -->
+        <HBox alignment="CENTER" spacing="12">
+            <padding><Insets top="22" right="0" bottom="22" left="0"/></padding>
+            <Region styleClass="sep-line" HBox.hgrow="ALWAYS"/>
+            <Label text="✦" styleClass="sep-gem"/>
+            <Region styleClass="sep-line" HBox.hgrow="ALWAYS"/>
+        </HBox>
+
+        <!-- ── Carte formulaire ── -->
+        <VBox styleClass="card" spacing="20" maxWidth="550">
+
+            <!-- Section : Mode de jeu -->
+            <VBox spacing="8">
+                <Label text="MODE DE JEU" styleClass="section-label"/>
+                <HBox spacing="8">
+                    <ToggleButton fx:id="btnHvsH" text="⚔  Humain vs Humain"
+                                  styleClass="mode-btn" HBox.hgrow="ALWAYS" maxWidth="1e30"
+                                  onAction="#onModeChanged"/>
+                    <ToggleButton fx:id="btnHvsIA" text="🤖  Humain vs IA"
+                                  styleClass="mode-btn" HBox.hgrow="ALWAYS" maxWidth="1e30"
+                                  onAction="#onModeChanged"/>
+                    <ToggleButton fx:id="btnIAvsIA" text="🧠  IA vs IA"
+                                  styleClass="mode-btn" HBox.hgrow="ALWAYS" maxWidth="1e30"
+                                  onAction="#onModeChanged"/>
+                </HBox>
+            </VBox>
+
+            <!-- Séparateur interne -->
+            <Region styleClass="sep-line" maxWidth="1e30"/>
+
+            <!-- Section : Configuration Blanc -->
+            <VBox fx:id="configBlanc" spacing="8">
+                <Label text="JOUEUR BLANC" styleClass="section-label"/>
+                <HBox spacing="8" alignment="CENTER_LEFT">
+                    <Label text="Nom :" styleClass="info-value-dim" prefWidth="60"/>
+                    <TextField fx:id="nomBlanc" promptText="Ex : Alice"
+                               styleClass="text-field-chess" HBox.hgrow="ALWAYS"/>
+                </HBox>
+                <HBox fx:id="rowIABlanc" spacing="8" alignment="CENTER_LEFT">
+                    <Label text="IA :" styleClass="info-value-dim" prefWidth="60"/>
+                    <ComboBox fx:id="iaBlanc" styleClass="combo-style"
+                              HBox.hgrow="ALWAYS" maxWidth="1e30"/>
+                </HBox>
+            </VBox>
+
+            <!-- Section : Configuration Noir -->
+            <VBox fx:id="configNoir" spacing="8">
+                <Label text="JOUEUR NOIR" styleClass="section-label"/>
+                <HBox spacing="8" alignment="CENTER_LEFT">
+                    <Label text="Nom :" styleClass="info-value-dim" prefWidth="60"/>
+                    <TextField fx:id="nomNoir" promptText="Ex : Bob"
+                               styleClass="text-field-chess" HBox.hgrow="ALWAYS"/>
+                </HBox>
+                <HBox fx:id="rowIANoir" spacing="8" alignment="CENTER_LEFT">
+                    <Label text="IA :" styleClass="info-value-dim" prefWidth="60"/>
+                    <ComboBox fx:id="iaNoir" styleClass="combo-style"
+                              HBox.hgrow="ALWAYS" maxWidth="1e30"/>
+                </HBox>
+            </VBox>
+
+            <!-- Séparateur interne -->
+            <Region styleClass="sep-line" maxWidth="1e30"/>
+
+            <!-- Section : Position FEN -->
+            <VBox spacing="8">
+                <Label text="POSITION DE DÉPART" styleClass="section-label"/>
+                <HBox spacing="6">
+                    <TextField fx:id="fenField"
+                               promptText="FEN — laisser vide pour la position initiale"
+                               styleClass="text-field-chess" HBox.hgrow="ALWAYS"/>
+                    <Button text="↺" styleClass="btn-icon"
+                            onAction="#onResetFen" prefWidth="36"/>
+                </HBox>
+                <Label fx:id="fenError" styleClass="label-erreur" text=""
+                       managed="false" visible="false"/>
+            </VBox>
+
+            <!-- Bouton lancer -->
+            <Button fx:id="btnLancer" text="LANCER LA PARTIE"
+                    styleClass="btn-lancer" maxWidth="1e30"
+                    onAction="#onLancerPartie"/>
+        </VBox>
+
+        <VBox.margin>
+            <Insets bottom="40"/>
+        </VBox.margin>
+    </VBox>
+
+</StackPane>

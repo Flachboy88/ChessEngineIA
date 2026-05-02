@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.canvas.*?>
+<?import javafx.scene.text.*?>
+<?import javafx.geometry.*?>
+
+<HBox xmlns="http://javafx.com/javafx/17"
+      xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="ui.controller.PartieController"
+      styleClass="partie-root"
+      prefWidth="1060" prefHeight="720">
+
+    <!-- ══════════════════════════════
+         Colonne gauche — Échiquier
+         ══════════════════════════════ -->
+    <VBox styleClass="board-pane" alignment="CENTER" HBox.hgrow="ALWAYS">
+
+        <!-- Coordonnées colonnes (a-h) haut -->
+        <HBox fx:id="coordTop" alignment="CENTER" spacing="0">
+            <padding><Insets bottom="4"/></padding>
+        </HBox>
+
+        <!-- Échiquier + coordonnées lignes -->
+        <HBox alignment="CENTER">
+
+            <!-- Coordonnées lignes gauche (8-1) -->
+            <VBox fx:id="coordLeft" alignment="CENTER" spacing="0" prefWidth="20">
+                <padding><Insets right="4"/></padding>
+            </VBox>
+
+            <!-- Canvas principal -->
+            <Canvas fx:id="boardCanvas" id="boardCanvas" width="560" height="560"/>
+
+            <!-- Coordonnées lignes droite (pour symétrie visuelle) -->
+            <VBox fx:id="coordRight" alignment="CENTER" spacing="0" prefWidth="20">
+                <padding><Insets left="4"/></padding>
+            </VBox>
+        </HBox>
+
+        <!-- Coordonnées colonnes (a-h) bas -->
+        <HBox fx:id="coordBot" alignment="CENTER" spacing="0">
+            <padding><Insets top="4"/></padding>
+        </HBox>
+
+    </VBox>
+
+    <!-- ══════════════════════════════
+         Colonne droite — Panneau info
+         ══════════════════════════════ -->
+    <VBox styleClass="side-panel" spacing="14">
+
+        <!-- Titre -->
+        <HBox alignment="CENTER_LEFT" spacing="10">
+            <Label text="♟" style="-fx-text-fill: -fx-gold; -fx-font-size: 18px;"/>
+            <Label text="PARTIE EN COURS" styleClass="game-title"/>
+        </HBox>
+
+        <Region styleClass="sep-line" maxWidth="1e30"/>
+
+        <!-- Indicateur de tour -->
+        <VBox fx:id="turnBox" styleClass="turn-box" spacing="4">
+            <HBox alignment="CENTER" spacing="10">
+                <Region fx:id="turnIndicator" styleClass="turn-indicator, turn-indicator-white"/>
+                <VBox spacing="1">
+                    <Label fx:id="turnLabel" text="Tour des Blancs" styleClass="turn-label"/>
+                    <Label fx:id="turnSubLabel" text="En attente..." styleClass="turn-sublabel"/>
+                </VBox>
+            </HBox>
+        </VBox>
+
+        <!-- Alerte échec (cachée par défaut) -->
+        <HBox fx:id="echecBox" styleClass="echec-box" alignment="CENTER" spacing="8"
+              managed="false" visible="false">
+            <Label text="⚠" style="-fx-text-fill: #ff6b6b; -fx-font-size: 15px;"/>
+            <Label text="ÉCHEC !" styleClass="echec-label"/>
+        </HBox>
+
+        <!-- Dernier coup -->
+        <VBox styleClass="last-move-box" spacing="4">
+            <Label text="DERNIER COUP" styleClass="info-key"/>
+            <Label fx:id="lastMoveLabel" text="—" styleClass="info-value"/>
+        </VBox>
+
+        <Region styleClass="sep-line" maxWidth="1e30"/>
+
+        <!-- Historique des coups -->
+        <VBox spacing="6" VBox.vgrow="ALWAYS">
+            <Label text="HISTORIQUE" styleClass="historique-header"/>
+            <ScrollPane fx:id="historiqueScroll" styleClass="historique-scroll"
+                        fitToWidth="true" VBox.vgrow="ALWAYS">
+                <GridPane fx:id="historiqueGrid" styleClass="historique-grid"
+                          maxWidth="1e30"/>
+            </ScrollPane>
+        </VBox>
+
+        <Region styleClass="sep-line" maxWidth="1e30"/>
+
+        <!-- Zone saisie coup humain -->
+        <VBox fx:id="inputBox" styleClass="input-box" spacing="8"
+              managed="false" visible="false">
+            <Label text="VOTRE COUP" styleClass="input-label"/>
+            <HBox spacing="6">
+                <TextField fx:id="inputField" promptText="ex: e2e4"
+                           styleClass="input-field" HBox.hgrow="ALWAYS"
+                           onAction="#onJouerCoup"/>
+                <Button text="▶" styleClass="btn-action" prefWidth="38"
+                        onAction="#onJouerCoup"/>
+            </HBox>
+            <Label fx:id="inputError" styleClass="input-error" text=""
+                   managed="false" visible="false"/>
+        </VBox>
+
+        <!-- Résultat final (caché par défaut) -->
+        <VBox fx:id="resultBox" styleClass="result-box" spacing="6"
+              managed="false" visible="false">
+            <Label fx:id="resultIcon" text="♛" styleClass="result-icon"/>
+            <Label fx:id="resultLabel" text="Partie terminée" styleClass="result-label"/>
+            <Label fx:id="resultSubLabel" text="" styleClass="result-sublabel"/>
+        </VBox>
+
+        <!-- Boutons d'action -->
+        <VBox spacing="6">
+            <Button fx:id="btnUndo" text="↩  Annuler le coup"
+                    styleClass="btn-secondary" maxWidth="1e30"
+                    onAction="#onUndo"/>
+            <Button text="⟳  Nouvelle partie"
+                    styleClass="btn-action" maxWidth="1e30"
+                    onAction="#onNouvellePartie"/>
+            <Button text="←  Retour à l'accueil"
+                    styleClass="btn-secondary" maxWidth="1e30"
+                    onAction="#onRetourAccueil"/>
+        </VBox>
+
+    </VBox>
+
+</HBox>
