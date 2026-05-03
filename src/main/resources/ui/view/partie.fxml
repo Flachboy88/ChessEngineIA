@@ -125,6 +125,9 @@
             <Button fx:id="btnUndo" text="↩  Annuler le coup"
                     styleClass="btn-secondary" maxWidth="1e30"
                     onAction="#onUndo"/>
+            <Button text="⇅  Retourner le plateau"
+                    styleClass="btn-secondary" maxWidth="1e30"
+                    onAction="#onRetournerPlateau"/>
             <Button text="⟳  Nouvelle partie"
                     styleClass="btn-action" maxWidth="1e30"
                     onAction="#onNouvellePartie"/>
