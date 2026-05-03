@@ -57,6 +57,22 @@
             <!-- Séparateur interne -->
             <Region styleClass="sep-line" maxWidth="1e30"/>
 
+            <!-- Section : Choix couleur (visible uniquement en mode H vs IA) -->
+            <VBox fx:id="configCouleur" spacing="8" visible="false" managed="false">
+                <Label text="VOUS JOUEZ" styleClass="section-label"/>
+                <HBox spacing="8">
+                    <ToggleButton fx:id="btnJouerBlanc" text="♔  Blancs"
+                                  styleClass="mode-btn" HBox.hgrow="ALWAYS" maxWidth="1e30"
+                                  onAction="#onCouleurChanged"/>
+                    <ToggleButton fx:id="btnJouerNoir" text="♚  Noirs"
+                                  styleClass="mode-btn" HBox.hgrow="ALWAYS" maxWidth="1e30"
+                                  onAction="#onCouleurChanged"/>
+                </HBox>
+            </VBox>
+
+            <!-- Séparateur interne -->
+            <Region fx:id="sepCouleur" styleClass="sep-line" maxWidth="1e30" visible="false" managed="false"/>
+
             <!-- Section : Configuration Blanc -->
             <VBox fx:id="configBlanc" spacing="8">
                 <Label text="JOUEUR BLANC" styleClass="section-label"/>
@@ -75,12 +91,12 @@
                               HBox.hgrow="ALWAYS" maxWidth="1e30"/>
                 </HBox>
 
-                <!-- Profondeur AlphaBeta Blanc (visible seulement si AlphaBeta sélectionné) -->
-                <HBox fx:id="rowDepthBlanc" spacing="8" alignment="CENTER_LEFT" visible="false" managed="false">
-                    <Label text="Profondeur :" styleClass="info-value-dim" prefWidth="80"/>
-                    <Spinner fx:id="depthBlanc" styleClass="spinner-chess"
-                             prefWidth="80" min="1" max="8"/>
-                    <Label text="(1–8 demi-coups, défaut=4)" styleClass="info-value-dim"/>
+                <!-- Temps de réflexion AlphaBeta Blanc (visible seulement si AlphaBeta sélectionné) -->
+                <HBox fx:id="rowTimeBlanc" spacing="8" alignment="CENTER_LEFT" visible="false" managed="false">
+                    <Label text="Temps (s) :" styleClass="info-value-dim" prefWidth="80"/>
+                    <Spinner fx:id="timeBlanc" styleClass="spinner-chess"
+                             prefWidth="80" min="1" max="60"/>
+                    <Label text="(1–60 secondes, défaut=3)" styleClass="info-value-dim"/>
                 </HBox>
             </VBox>
 
@@ -102,12 +118,12 @@
                               HBox.hgrow="ALWAYS" maxWidth="1e30"/>
                 </HBox>
 
-                <!-- Profondeur AlphaBeta Noir (visible seulement si AlphaBeta sélectionné) -->
-                <HBox fx:id="rowDepthNoir" spacing="8" alignment="CENTER_LEFT" visible="false" managed="false">
-                    <Label text="Profondeur :" styleClass="info-value-dim" prefWidth="80"/>
-                    <Spinner fx:id="depthNoir" styleClass="spinner-chess"
-                             prefWidth="80" min="1" max="8"/>
-                    <Label text="(1–8 demi-coups, défaut=4)" styleClass="info-value-dim"/>
+                <!-- Temps de réflexion AlphaBeta Noir (visible seulement si AlphaBeta sélectionné) -->
+                <HBox fx:id="rowTimeNoir" spacing="8" alignment="CENTER_LEFT" visible="false" managed="false">
+                    <Label text="Temps (s) :" styleClass="info-value-dim" prefWidth="80"/>
+                    <Spinner fx:id="timeNoir" styleClass="spinner-chess"
+                             prefWidth="80" min="1" max="60"/>
+                    <Label text="(1–60 secondes, défaut=3)" styleClass="info-value-dim"/>
                 </HBox>
             </VBox>
 

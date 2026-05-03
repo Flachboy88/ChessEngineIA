@@ -15,61 +15,40 @@ import java.util.List;
  * <p>Délègue entièrement la recherche à {@link AlphaBetaSearch} et
  * l'évaluation statique à {@link PositionEvaluator} (matériel + PST + phase).
  *
- * <h2>Profondeur adaptative en fin de partie</h2>
- * <p>Quand chaque camp a au plus {@value ENDGAME_PIECE_THRESHOLD} pièces,
- * la profondeur est augmentée de {@value ENDGAME_DEPTH_BONUS} demi-coups.
- * L'arbre de jeu est beaucoup plus petit en fin de partie, donc le surcoût est limité
- * et la précision de calcul s'améliore significativement.</p>
+ * <h2>Recherche par temps (IDDFS)</h2>
+ * <p>La recherche utilise l'Iterative Deepening : elle part de la profondeur 1
+ * et monte jusqu'à MAX_PLY, en s'arrêtant dès que le budget temps est épuisé.
+ * Le résultat retourné est toujours le meilleur coup de la dernière itération complète.</p>
  */
 public final class AlphaBetaPlayer extends AIPlayer {
 
-    /** Profondeur de recherche par défaut (plies). */
-    public static final int DEFAULT_DEPTH = 4;
+    /** Temps de réflexion par défaut en millisecondes (3 secondes). */
+    public static final long DEFAULT_TIME_MS = 3_000L;
 
-    /**
-     * Seuil de pièces par camp en dessous duquel on active la profondeur bonus.
-     * 7 pièces par camp = fin de partie (tour + dame + quelques pions typiquement).
-     */
-    private static final int ENDGAME_PIECE_THRESHOLD = 7;
-
-    /**
-     * Bonus de profondeur en fin de partie.
-     * +2 demi-coups : bon compromis perf/précision (depth 4 → 6, depth 5 → 7).
-     */
-    private static final int ENDGAME_DEPTH_BONUS = 2;
-
-    /** Profondeur de recherche de base configurée. */
-    private final int profondeur;
+    /** Budget temps par coup configuré (millisecondes). */
+    private final long timeLimitMs;
 
     // ── Constructeurs ─────────────────────────────────────────────────────────
 
     public AlphaBetaPlayer(Color color) {
-        this(color, DEFAULT_DEPTH);
+        this(color, DEFAULT_TIME_MS);
     }
 
-    public AlphaBetaPlayer(Color color, int profondeur) {
-        this(color, profondeur, "AlphaBeta (depth=" + profondeur + ")");
+    public AlphaBetaPlayer(Color color, long timeLimitMs) {
+        this(color, timeLimitMs, "AlphaBeta (" + (timeLimitMs / 1000) + "s)");
     }
 
-    public AlphaBetaPlayer(Color color, int profondeur, String name) {
+    public AlphaBetaPlayer(Color color, long timeLimitMs, String name) {
         super(color, name);
-        if (profondeur < 1) throw new IllegalArgumentException("La profondeur doit être >= 1");
-        this.profondeur = profondeur;
+        if (timeLimitMs < 100) throw new IllegalArgumentException("Le temps doit être >= 100ms");
+        this.timeLimitMs = timeLimitMs;
     }
 
     // ── Logique de sélection ──────────────────────────────────────────────────
 
     @Override
     protected Move selectMove(GameState state, List<Move> legalMoves) {
-        int depthEffective = profondeur;
-
-        // Profondeur adaptative : augmenter en fin de partie
-        if (state.getPieceCount(Color.WHITE) <= ENDGAME_PIECE_THRESHOLD
-                && state.getPieceCount(Color.BLACK) <= ENDGAME_PIECE_THRESHOLD) {
-            depthEffective = profondeur + ENDGAME_DEPTH_BONUS;
-        }
-
-        return AlphaBetaSearch.chercherMeilleurCoup(state, depthEffective);
+        return AlphaBetaSearch.chercherMeilleurCoupTemps(state, timeLimitMs);
     }
 
     @Override
@@ -77,7 +56,7 @@ public final class AlphaBetaPlayer extends AIPlayer {
         return PositionEvaluator.evaluateFor(state.getBitboardState(), color);
     }
 
-    public int getProfondeur() {
-        return profondeur;
+    public long getTimeLimitMs() {
+        return timeLimitMs;
     }
 }

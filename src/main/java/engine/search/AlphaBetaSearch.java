@@ -75,6 +75,12 @@ public final class AlphaBetaSearch {
     // ── Table de transposition (statique, partagée entre les coups) ───────────
     private static final TranspositionTable TT = new TranspositionTable();
 
+    // ── Contrôle du temps ─────────────────────────────────────────────────────
+    /** Timestamp (ms) au-delà duquel la recherche doit s'arrêter. 0 = pas de limite. */
+    private static volatile long   deadline   = 0L;
+    /** Positionné à true quand la deadline est dépassée — stoppe l'IDDFS. */
+    private static volatile boolean stopSearch = false;
+
     private AlphaBetaSearch() {}
 
     // =========================================================================
@@ -82,10 +88,31 @@ public final class AlphaBetaSearch {
     // =========================================================================
 
     public static Move chercherMeilleurCoup(GameState state, int profondeur) {
+        deadline   = 0L;
+        stopSearch = false;
         BitboardState bs    = state.getBitboardState();
         List<Move>    moves = MoveGenerator.generateLegalMoves(bs);
         if (moves.isEmpty()) throw new IllegalStateException("Aucun coup légal.");
         return new Recherche(profondeur).iterativeDeepening(bs, moves);
+    }
+
+    /**
+     * Recherche avec limite de temps : l'IDDFS monte en profondeur jusqu'à MAX_PLY
+     * et s'arrête dès que {@code maxMs} millisecondes sont écoulées.
+     * Retourne toujours le meilleur coup de la dernière itération complète.
+     *
+     * @param state  état courant
+     * @param maxMs  budget temps en millisecondes
+     * @return meilleur coup trouvé dans le temps imparti
+     */
+    public static Move chercherMeilleurCoupTemps(GameState state, long maxMs) {
+        deadline   = System.currentTimeMillis() + maxMs;
+        stopSearch = false;
+        BitboardState bs    = state.getBitboardState();
+        List<Move>    moves = MoveGenerator.generateLegalMoves(bs);
+        if (moves.isEmpty()) throw new IllegalStateException("Aucun coup légal.");
+        // MAX_PLY comme profondeur plafond — l'arrêt réel se fait par le temps
+        return new Recherche(MAX_PLY).iterativeDeepening(bs, moves);
     }
 
     public static void clearTT() { TT.clear(); }
@@ -142,6 +169,12 @@ public final class AlphaBetaSearch {
             int  prevScore = 0;
 
             for (int depth = 1; depth <= profondeurCible; depth++) {
+                // Vérifier le temps avant chaque itération
+                if (deadline > 0 && System.currentTimeMillis() >= deadline) {
+                    stopSearch = true;
+                    break;
+                }
+
                 Move candidat;
 
                 // Si le score précédent est proche du mat (positif ou négatif),
@@ -159,14 +192,18 @@ public final class AlphaBetaSearch {
                     candidat = rechercherRacine(bs, moves, depth, alpha, beta);
 
                     // Fail-low → fenêtre ouverte à gauche
-                    if (candidat == null || derniereScore <= alpha) {
+                    if (!stopSearch && (candidat == null || derniereScore <= alpha)) {
                         candidat = rechercherRacine(bs, moves, depth, -INF, beta);
                     }
                     // Fail-high → fenêtre ouverte à droite
-                    else if (derniereScore >= beta) {
+                    else if (!stopSearch && derniereScore >= beta) {
                         candidat = rechercherRacine(bs, moves, depth, alpha, INF);
                     }
                 }
+
+                // Si le temps a expiré pendant cette itération, on garde
+                // le bestMove de l'itération précédente (résultat incomplet = non fiable)
+                if (stopSearch) break;
 
                 if (candidat != null) {
                     bestMove  = candidat;
@@ -187,6 +224,11 @@ public final class AlphaBetaSearch {
             trierCoups(moves, bs, ttBestMove(bs.getZobristHash()), 0);
 
             for (Move move : moves) {
+                // Couper si le temps est dépassé
+                if (stopSearch || (deadline > 0 && System.currentTimeMillis() >= deadline)) {
+                    stopSearch = true;
+                    break;
+                }
                 BitboardState next  = MoveGenerator.applyMove(bs, move);
                 int           score = -alphaBeta(next, depth - 1, -beta, -alpha,
                                                  side.opposite(), 1, false, 0);
@@ -295,8 +337,15 @@ public final class AlphaBetaSearch {
             int  movesExplored   = 0;
 
             for (Move move : moves) {
+                // Couper si le temps est dépassé
+                if (stopSearch || (deadline > 0 && (movesExplored & 63) == 0
+                        && System.currentTimeMillis() >= deadline)) {
+                    stopSearch = true;
+                    break;
+                }
+
                 BitboardState next   = MoveGenerator.applyMove(state, move);
-                boolean       isCapt = isCapture(move, state);
+                boolean       isCapt = isCaptureFast(move, state);
                 int           score;
 
                 boolean canLmr = !inCheck
@@ -352,19 +401,26 @@ public final class AlphaBetaSearch {
             if (standPat > alpha) alpha = standPat;
             if (depthLeft == 0)   return alpha;
 
-            List<Move> captures = generateCaptures(state);
+            // Génération pseudo-légale des captures uniquement (beaucoup plus rapide
+            // que generateLegalMoves complet). Les coups illégaux laissant le roi en
+            // échec sont filtrés juste après applyMove.
+            List<Move> captures = MoveGenerator.generatePseudoLegalCaptures(state);
             if (captures.isEmpty()) return alpha;
             trierCapturesMvvLva(captures, state);
 
             for (Move capture : captures) {
+                // Delta pruning (pas de vérification sur les promotions)
                 if (!capture.isPromotion()) {
                     int captureValue = capturedPieceValue(capture, state);
                     if (standPat + captureValue + DELTA_MARGIN <= alpha) continue;
                 }
 
-                BitboardState next  = MoveGenerator.applyMove(state, capture);
-                int           score = -quiescence(next, -beta, -alpha,
-                                                   side.opposite(), depthLeft - 1);
+                BitboardState next = MoveGenerator.applyMove(state, capture);
+                // Filtrage de légalité : rejeter les coups laissant notre roi en échec
+                if (MoveGenerator.isInCheck(next, side)) continue;
+
+                int score = -quiescence(next, -beta, -alpha,
+                                        side.opposite(), depthLeft - 1);
                 if (score >= beta) return beta;
                 if (score > alpha) alpha = score;
             }
@@ -412,27 +468,37 @@ public final class AlphaBetaSearch {
             if (move.isEnPassant())
                 return 1_000_000 + Piece.PAWN.value * 10 - Piece.PAWN.value;
 
-            BitboardState.PieceOnSquare victim = state.getPieceAt(move.to());
-            if (victim != null) {
-                BitboardState.PieceOnSquare att = state.getPieceAt(move.from());
-                return 1_000_000 + victim.piece().value * 10
-                     - (att != null ? att.piece().value : 0);
+            // Lecture directe des bitboards : O(6) au lieu de O(12) avec getPieceAt
+            long toMask = move.to().mask;
+            Color them = state.getSideToMove().opposite();
+            int victimValue = pieceValueAt(state, them, toMask);
+            if (victimValue > 0) {
+                int attValue = pieceValueAt(state, state.getSideToMove(), move.from().mask);
+                return 1_000_000 + victimValue * 10 - attValue;
             }
             if (move.isPromotion() && move.promotionPiece() == Piece.QUEEN) return 900_000;
             if (estKiller(enc, ply)) return 800_000;
             return 0;
         }
 
+        /** Valeur de la pièce de {@code color} sur la case {@code mask}, 0 si vide. */
+        private static int pieceValueAt(BitboardState state, Color color, long mask) {
+            for (Piece p : Piece.values()) {
+                if ((state.getBitboard(color, p) & mask) != 0) return p.value;
+            }
+            return 0;
+        }
+
         private void trierCapturesMvvLva(List<Move> captures, BitboardState state) {
             int   n      = captures.size();
             int[] scores = new int[n];
+            Color them = state.getSideToMove().opposite();
             for (int i = 0; i < n; i++) {
                 Move m = captures.get(i);
                 if (m.isEnPassant()) { scores[i] = Piece.PAWN.value * 10 - Piece.PAWN.value; continue; }
-                BitboardState.PieceOnSquare v = state.getPieceAt(m.to());
-                BitboardState.PieceOnSquare a = state.getPieceAt(m.from());
-                scores[i] = (v != null ? v.piece().value : 0) * 10
-                           - (a != null ? a.piece().value : 0);
+                int v = pieceValueAt(state, them, m.to().mask);
+                int a = pieceValueAt(state, state.getSideToMove(), m.from().mask);
+                scores[i] = v * 10 - a;
             }
             for (int i = 1; i < n; i++) {
                 Move m = captures.get(i); int s = scores[i]; int j = i - 1;
@@ -454,12 +520,11 @@ public final class AlphaBetaSearch {
         return (e != null) ? e.bestMoveEncoded : 0;
     }
 
-    private static List<Move> generateCaptures(BitboardState state) {
-        List<Move> result = new ArrayList<>();
-        for (Move m : MoveGenerator.generateLegalMoves(state)) {
-            if (isTrueCapture(m, state)) result.add(m);
-        }
-        return result;
+    /** Version rapide sans getPieceAt — lit les bitboards directement. */
+    private static boolean isCaptureFast(Move move, BitboardState state) {
+        if (move.isEnPassant() || move.isPromotion()) return true;
+        long toMask = move.to().mask;
+        return (state.getOccupancy(state.getSideToMove().opposite()) & toMask) != 0;
     }
 
     private static boolean isTrueCapture(Move move, BitboardState state) {
@@ -474,8 +539,12 @@ public final class AlphaBetaSearch {
 
     private static int capturedPieceValue(Move move, BitboardState state) {
         if (move.isEnPassant()) return Piece.PAWN.value;
-        BitboardState.PieceOnSquare t = state.getPieceAt(move.to());
-        return t != null ? t.piece().value : 0;
+        long toMask = move.to().mask;
+        Color them = state.getSideToMove().opposite();
+        for (Piece p : Piece.values()) {
+            if ((state.getBitboard(them, p) & toMask) != 0) return p.value;
+        }
+        return 0;
     }
 
     private static int materialCount(BitboardState state, Color side) {

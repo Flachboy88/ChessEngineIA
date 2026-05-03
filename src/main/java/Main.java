@@ -118,13 +118,14 @@ public final class Main {
     }
 
     // =========================================================
-    // BENCHMARK (TA VERSION FIXÉE)
+    // BENCHMARK
     // =========================================================
 
     private static void lancerBenchmark(int nbParties) {
+        long timeMs = AlphaBetaPlayer.DEFAULT_TIME_MS;
         System.out.println("═══════════════════════════════════════");
         System.out.printf("  BENCHMARK : %d parties IA vs IA%n", nbParties);
-        System.out.println("  Blancs : AlphaBeta depth=4");
+        System.out.printf("  Blancs : AlphaBeta time=%ds%n", timeMs / 1000);
         System.out.println("  Noirs  : Random AI");
         System.out.println("═══════════════════════════════════════");
 
@@ -137,7 +138,7 @@ public final class Main {
             AlphaBetaSearch.clearTT();
 
             ChessAPI api = new ChessAPI();
-            api.setWhitePlayer(new AlphaBetaPlayer(Color.WHITE));
+            api.setWhitePlayer(new AlphaBetaPlayer(Color.WHITE, timeMs));
             api.setBlackPlayer(new RandomAIPlayer(Color.BLACK));
 
             long t0 = System.currentTimeMillis();

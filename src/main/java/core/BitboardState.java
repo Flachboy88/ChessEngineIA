@@ -1,6 +1,5 @@
 package core;
 
-import engine.search.ZobristHasher;
 import model.Color;
 import model.Piece;
 import model.Square;
@@ -100,6 +99,17 @@ public final class BitboardState {
         return new BitboardState(bbs, Color.WHITE, CastlingRights.all(), null, 0, 1);
     }
 
+    /**
+     * Constructeur tout-en-un utilisé par MoveGenerator.applyMove.
+     * Évite les 8-10 allocations intermédiaires de la chaîne withXxx().
+     */
+    public static BitboardState ofApplied(long[][] bitboards, Color sideToMove,
+                                          CastlingRights castlingRights, Square enPassantTarget,
+                                          int halfMoveClock, int fullMoveNumber, long zobristHash) {
+        return new BitboardState(bitboards, sideToMove, castlingRights, enPassantTarget,
+                                 halfMoveClock, fullMoveNumber, zobristHash);
+    }
+
     /** Retourne un état vide (aucune pièce). */
     public static BitboardState empty() {
         return new BitboardState(new long[2][6], Color.WHITE, CastlingRights.none(), null, 0, 1);
@@ -147,6 +157,13 @@ public final class BitboardState {
     public int getFullMoveNumber()    { return fullMoveNumber; }
     /** Retourne le hash Zobrist de cette position (pour la table de transposition). */
     public long getZobristHash()      { return zobristHash; }
+
+    /**
+     * Expose une ligne du tableau de bitboards (utilisé par applyMove pour copie rapide).
+     */
+    public long[] getBitboardsRow(int colorOrdinal) {
+        return bitboards[colorOrdinal];
+    }
 
     // ── Builders (retournent un nouvel état immuable) ─────────────────────────
 

@@ -2,6 +2,7 @@ package rules;
 
 import core.Bitboard;
 import core.BitboardState;
+import core.ZobristHasher;
 import model.*;
 
 import java.util.ArrayList;
@@ -80,8 +81,7 @@ public class MoveGenerator {
 
         // Fous + Dames (diagonales)
         long bishopQueens = state.getBitboard(attacker, Piece.BISHOP) | state.getBitboard(attacker, Piece.QUEEN);
-        if (getBishopAttacks(squareIndex, occ, 0L) != 0 &&
-            (getBishopAttacks(squareIndex, occ, 0L) & bishopQueens) != 0)
+        if (bishopQueens != 0 && (getBishopAttacks(squareIndex, occ, 0L) & bishopQueens) != 0)
             return true;
 
         // Tours + Dames (lignes)
@@ -93,6 +93,94 @@ public class MoveGenerator {
     }
 
     // ── Génération pseudo-légale ──────────────────────────────────────────────
+
+    /**
+     * Génère uniquement les captures (prises + prises en passant) de façon pseudo-légale,
+     * sans vérifier si le roi est en échec après.
+     * Utilisé par la quiescence search pour éviter d'appeler generateLegalMoves complet.
+     * Le filtrage de légalité (roi en échec) est fait dans la quiescence elle-même.
+     */
+    public static List<Move> generatePseudoLegalCaptures(BitboardState state) {
+        Color color = state.getSideToMove();
+        long enemies = state.getOccupancy(color.opposite());
+        long occ = state.getAllOccupancy();
+        long allies = state.getOccupancy(color);
+        List<Move> captures = new ArrayList<>(16);
+
+        // Captures de pions (y compris promotions par capture)
+        long pawns = state.getBitboard(color, Piece.PAWN);
+        boolean white = color == Color.WHITE;
+        long promoRank = white ? Bitboard.RANK_8 : Bitboard.RANK_1;
+        long tempPawns = pawns;
+        while (tempPawns != 0) {
+            int from = Bitboard.lsb(tempPawns);
+            tempPawns = Bitboard.popLsb(tempPawns);
+            long attacks = white
+                ? AttackTables.WHITE_PAWN_ATTACKS[from]
+                : AttackTables.BLACK_PAWN_ATTACKS[from];
+            long pawnCaptures = attacks & enemies;
+            while (pawnCaptures != 0) {
+                int to = Bitboard.lsb(pawnCaptures);
+                pawnCaptures = Bitboard.popLsb(pawnCaptures);
+                if ((1L << to & promoRank) != 0) {
+                    addPromotions(from, to, captures);
+                } else {
+                    captures.add(Move.of(Square.fromIndex(from), Square.fromIndex(to)));
+                }
+            }
+            // En passant
+            Square ep = state.getEnPassantTarget();
+            if (ep != null && (attacks & ep.mask) != 0) {
+                captures.add(Move.enPassant(Square.fromIndex(from), ep));
+            }
+        }
+
+        // Captures de cavaliers
+        long knights = state.getBitboard(color, Piece.KNIGHT);
+        while (knights != 0) {
+            int from = Bitboard.lsb(knights);
+            knights = Bitboard.popLsb(knights);
+            long targets = AttackTables.KNIGHT_ATTACKS[from] & enemies;
+            addMovesFromTargets(from, targets, captures);
+        }
+
+        // Captures de fous
+        long bishops = state.getBitboard(color, Piece.BISHOP);
+        while (bishops != 0) {
+            int from = Bitboard.lsb(bishops);
+            bishops = Bitboard.popLsb(bishops);
+            long targets = getBishopAttacks(from, occ, allies) & enemies;
+            addMovesFromTargets(from, targets, captures);
+        }
+
+        // Captures de tours
+        long rooks = state.getBitboard(color, Piece.ROOK);
+        while (rooks != 0) {
+            int from = Bitboard.lsb(rooks);
+            rooks = Bitboard.popLsb(rooks);
+            long targets = getRookAttacks(from, occ, allies) & enemies;
+            addMovesFromTargets(from, targets, captures);
+        }
+
+        // Captures de dames
+        long queens = state.getBitboard(color, Piece.QUEEN);
+        while (queens != 0) {
+            int from = Bitboard.lsb(queens);
+            queens = Bitboard.popLsb(queens);
+            long targets = (getBishopAttacks(from, occ, allies) | getRookAttacks(from, occ, allies)) & enemies;
+            addMovesFromTargets(from, targets, captures);
+        }
+
+        // Captures du roi
+        long king = state.getBitboard(color, Piece.KING);
+        if (king != 0) {
+            int from = Bitboard.lsb(king);
+            long targets = AttackTables.KING_ATTACKS[from] & enemies;
+            addMovesFromTargets(from, targets, captures);
+        }
+
+        return captures;
+    }
 
     private static List<Move> generatePseudoLegalMoves(BitboardState state) {
         Color color = state.getSideToMove();
@@ -346,77 +434,96 @@ public class MoveGenerator {
         Square to   = move.to();
 
         BitboardState.PieceOnSquare pos = state.getPieceAt(from);
-        if (pos == null) return state; // coup invalide
+        if (pos == null) return state;
 
         Piece piece = pos.piece();
-        BitboardState next = state.copy();
+        int colorIdx = color.ordinal();
+        int enemyIdx = enemy.ordinal();
+
+        // Copier les bitboards en une seule fois
+        long[][] bbs = new long[2][6];
+        System.arraycopy(state.getBitboardsRow(0), 0, bbs[0], 0, 6);
+        System.arraycopy(state.getBitboardsRow(1), 0, bbs[1], 0, 6);
+
+        long hash = state.getZobristHash();
 
         // Retirer la pièce de la case de départ
-        next = next.withoutPiece(color, piece, from);
+        bbs[colorIdx][piece.index] &= ~from.mask;
+        hash ^= ZobristHasher.PIECE_HASH[colorIdx][piece.index][from.index];
 
-        // Retirer une éventuelle pièce ennemie capturée
+        // Gérer la capture
         if (move.isEnPassant()) {
             Square captured = color == Color.WHITE
                 ? Square.fromIndex(to.index - 8)
                 : Square.fromIndex(to.index + 8);
-            next = next.withoutPiece(enemy, Piece.PAWN, captured);
+            bbs[enemyIdx][Piece.PAWN.index] &= ~captured.mask;
+            hash ^= ZobristHasher.PIECE_HASH[enemyIdx][Piece.PAWN.index][captured.index];
         } else {
-            BitboardState.PieceOnSquare target = state.getPieceAt(to);
-            if (target != null && target.color() == enemy) {
-                next = next.withoutPiece(enemy, target.piece(), to);
+            // Retirer une éventuelle pièce ennemie sur la case d'arrivée
+            for (int p = 0; p < 6; p++) {
+                if ((bbs[enemyIdx][p] & to.mask) != 0) {
+                    bbs[enemyIdx][p] &= ~to.mask;
+                    hash ^= ZobristHasher.PIECE_HASH[enemyIdx][p][to.index];
+                    break;
+                }
             }
         }
 
-        // Poser la pièce sur la case d'arrivée (ou la pièce promue)
+        // Poser la pièce (ou la pièce promue) sur la case d'arrivée
         Piece landing = move.isPromotion() ? move.promotionPiece() : piece;
-        next = next.withPiece(color, landing, to);
+        bbs[colorIdx][landing.index] |= to.mask;
+        hash ^= ZobristHasher.PIECE_HASH[colorIdx][landing.index][to.index];
 
-        // Roque : déplacer aussi la tour
+        // Roque : déplacer la tour
         if (move.isCastling()) {
-            if (to == Square.G1) {
-                next = next.withoutPiece(color, Piece.ROOK, Square.H1)
-                           .withPiece(color, Piece.ROOK, Square.F1);
-            } else if (to == Square.C1) {
-                next = next.withoutPiece(color, Piece.ROOK, Square.A1)
-                           .withPiece(color, Piece.ROOK, Square.D1);
-            } else if (to == Square.G8) {
-                next = next.withoutPiece(color, Piece.ROOK, Square.H8)
-                           .withPiece(color, Piece.ROOK, Square.F8);
-            } else if (to == Square.C8) {
-                next = next.withoutPiece(color, Piece.ROOK, Square.A8)
-                           .withPiece(color, Piece.ROOK, Square.D8);
-            }
+            Square rookFrom, rookTo;
+            if      (to == Square.G1) { rookFrom = Square.H1; rookTo = Square.F1; }
+            else if (to == Square.C1) { rookFrom = Square.A1; rookTo = Square.D1; }
+            else if (to == Square.G8) { rookFrom = Square.H8; rookTo = Square.F8; }
+            else                      { rookFrom = Square.A8; rookTo = Square.D8; }
+            bbs[colorIdx][Piece.ROOK.index] &= ~rookFrom.mask;
+            bbs[colorIdx][Piece.ROOK.index] |=  rookTo.mask;
+            hash ^= ZobristHasher.PIECE_HASH[colorIdx][Piece.ROOK.index][rookFrom.index];
+            hash ^= ZobristHasher.PIECE_HASH[colorIdx][Piece.ROOK.index][rookTo.index];
         }
 
-        // Mise à jour de la case en passant
+        // En passant
         Square newEp = null;
         if (piece == Piece.PAWN && Math.abs(to.rank - from.rank) == 2) {
             int epRank = (from.rank + to.rank) / 2;
             newEp = Square.fromIndex(from.file + epRank * 8);
         }
-        next = next.withEnPassantTarget(newEp);
+        // Mise à jour hash en passant
+        if (state.getEnPassantTarget() != null)
+            hash ^= ZobristHasher.EN_PASSANT_HASH[state.getEnPassantTarget().file];
+        if (newEp != null)
+            hash ^= ZobristHasher.EN_PASSANT_HASH[newEp.file];
 
-        // Mise à jour des droits de roque
+        // Droits de roque
         CastlingRights cr = state.getCastlingRights();
+        CastlingRights newCr = cr;
         if (piece == Piece.KING) {
-            cr = cr.remove(color == Color.WHITE
+            newCr = newCr.remove(color == Color.WHITE
                 ? CastlingRights.WHITE_KINGSIDE | CastlingRights.WHITE_QUEENSIDE
                 : CastlingRights.BLACK_KINGSIDE | CastlingRights.BLACK_QUEENSIDE);
         }
-        if (from == Square.A1 || to == Square.A1) cr = cr.remove(CastlingRights.WHITE_QUEENSIDE);
-        if (from == Square.H1 || to == Square.H1) cr = cr.remove(CastlingRights.WHITE_KINGSIDE);
-        if (from == Square.A8 || to == Square.A8) cr = cr.remove(CastlingRights.BLACK_QUEENSIDE);
-        if (from == Square.H8 || to == Square.H8) cr = cr.remove(CastlingRights.BLACK_KINGSIDE);
-        next = next.withCastlingRights(cr);
+        if (from == Square.A1 || to == Square.A1) newCr = newCr.remove(CastlingRights.WHITE_QUEENSIDE);
+        if (from == Square.H1 || to == Square.H1) newCr = newCr.remove(CastlingRights.WHITE_KINGSIDE);
+        if (from == Square.A8 || to == Square.A8) newCr = newCr.remove(CastlingRights.BLACK_QUEENSIDE);
+        if (from == Square.H8 || to == Square.H8) newCr = newCr.remove(CastlingRights.BLACK_KINGSIDE);
+        if (newCr.getRights() != cr.getRights()) {
+            hash ^= ZobristHasher.CASTLING_HASH[cr.getRights()];
+            hash ^= ZobristHasher.CASTLING_HASH[newCr.getRights()];
+        }
 
         // Compteurs
-        boolean isCapture = state.getPieceAt(to) != null || move.isEnPassant();
+        boolean isCapture = move.isEnPassant() || (state.getPieceAt(to) != null);
         int newHalfClock = (piece == Piece.PAWN || isCapture) ? 0 : state.getHalfMoveClock() + 1;
         int newFullMove  = state.getFullMoveNumber() + (color == Color.BLACK ? 1 : 0);
 
-        next = next.withHalfMoveClock(newHalfClock).withFullMoveNumber(newFullMove);
-        next = next.withSideToMove(enemy);
+        // Changement de camp
+        hash ^= ZobristHasher.SIDE_TO_MOVE_HASH;
 
-        return next;
+        return BitboardState.ofApplied(bbs, enemy, newCr, newEp, newHalfClock, newFullMove, hash);
     }
 }

@@ -7,6 +7,8 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import model.Color;
 import player.*;
@@ -29,19 +31,25 @@ public class AccueilController {
     @FXML private ToggleButton btnHvsIA;
     @FXML private ToggleButton btnIAvsIA;
 
+    // ── Choix couleur (H vs IA) ───────────────────────────────────────────
+    @FXML private VBox configCouleur;
+    @FXML private Region sepCouleur;
+    @FXML private ToggleButton btnJouerBlanc;
+    @FXML private ToggleButton btnJouerNoir;
+
     // ── Blanc ─────────────────────────────────────────────────────────────────
     @FXML private TextField        nomBlanc;
     @FXML private ComboBox<String> iaBlanc;
     @FXML private HBox             rowIABlanc;
-    @FXML private Spinner<Integer> depthBlanc;
-    @FXML private HBox             rowDepthBlanc;
+    @FXML private Spinner<Integer> timeBlanc;
+    @FXML private HBox             rowTimeBlanc;
 
     // ── Noir ──────────────────────────────────────────────────────────────────
     @FXML private TextField        nomNoir;
     @FXML private ComboBox<String> iaNoir;
     @FXML private HBox             rowIANoir;
-    @FXML private Spinner<Integer> depthNoir;
-    @FXML private HBox             rowDepthNoir;
+    @FXML private Spinner<Integer> timeNoir;
+    @FXML private HBox             rowTimeNoir;
 
     // ── FEN ───────────────────────────────────────────────────────────────────
     @FXML private TextField fenField;
@@ -56,6 +64,9 @@ public class AccueilController {
     // Mode actuel
     private enum Mode { H_VS_H, H_VS_IA, IA_VS_IA }
     private Mode modeActuel = Mode.H_VS_H;
+
+    /** Temps de réflexion par défaut en secondes. */
+    private static final int DEFAULT_TIME_SEC = (int) (AlphaBetaPlayer.DEFAULT_TIME_MS / 1000);
 
     /** Noms affichés dans les ComboBox IA — l'ordre doit correspondre à {@link #creerIA}. */
     private static final String[] IA_OPTIONS = {
@@ -74,25 +85,31 @@ public class AccueilController {
         btnIAvsIA.setToggleGroup(modeGroup);
         btnHvsH.setSelected(true);
 
+        // Groupe exclusif pour le choix de couleur
+        ToggleGroup couleurGroup = new ToggleGroup();
+        btnJouerBlanc.setToggleGroup(couleurGroup);
+        btnJouerNoir.setToggleGroup(couleurGroup);
+        btnJouerBlanc.setSelected(true); // blanc par défaut
+
         // Remplir les ComboBox IA
         iaBlanc.getItems().addAll(IA_OPTIONS);
         iaNoir.getItems().addAll(IA_OPTIONS);
         iaBlanc.getSelectionModel().selectFirst();
         iaNoir.getSelectionModel().selectFirst();
 
-        // Spinners de profondeur (1–8, défaut = 4)
-        SpinnerValueFactory<Integer> svfBlanc = new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 8, AlphaBetaPlayer.DEFAULT_DEPTH);
-        SpinnerValueFactory<Integer> svfNoir  = new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 8, AlphaBetaPlayer.DEFAULT_DEPTH);
-        depthBlanc.setValueFactory(svfBlanc);
-        depthNoir.setValueFactory(svfNoir);
-        depthBlanc.setEditable(true);
-        depthNoir.setEditable(true);
+        // Spinners de temps (1–60 secondes, défaut = DEFAULT_TIME_SEC)
+        SpinnerValueFactory<Integer> svfBlanc = new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 60, DEFAULT_TIME_SEC);
+        SpinnerValueFactory<Integer> svfNoir  = new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 60, DEFAULT_TIME_SEC);
+        timeBlanc.setValueFactory(svfBlanc);
+        timeNoir.setValueFactory(svfNoir);
+        timeBlanc.setEditable(true);
+        timeNoir.setEditable(true);
 
         // Masquer/afficher le spinner selon l'IA sélectionnée
         iaBlanc.getSelectionModel().selectedIndexProperty().addListener(
-            (obs, o, n) -> rowDepthBlanc.setVisible(n.intValue() == 0));
+            (obs, o, n) -> rowTimeBlanc.setVisible(n.intValue() == 0));
         iaNoir.getSelectionModel().selectedIndexProperty().addListener(
-            (obs, o, n) -> rowDepthNoir.setVisible(n.intValue() == 0));
+            (obs, o, n) -> rowTimeNoir.setVisible(n.intValue() == 0));
 
         // Valeurs par défaut des noms
         nomBlanc.setText("Joueur 1");
@@ -110,6 +127,15 @@ public class AccueilController {
         if (sel == btnHvsH)        appliquerMode(Mode.H_VS_H);
         else if (sel == btnHvsIA)  appliquerMode(Mode.H_VS_IA);
         else if (sel == btnIAvsIA) appliquerMode(Mode.IA_VS_IA);
+    }
+
+    @FXML
+    private void onCouleurChanged() {
+        // Empêche la désélection totale et met à jour l'affichage IA/Humain
+        if (btnJouerBlanc.getToggleGroup().getSelectedToggle() == null) {
+            btnJouerBlanc.setSelected(true);
+        }
+        if (modeActuel == Mode.H_VS_IA) appliquerMode(Mode.H_VS_IA);
     }
 
     @FXML
@@ -167,6 +193,12 @@ public class AccueilController {
 
     private void appliquerMode(Mode mode) {
         modeActuel = mode;
+        boolean couleurVisible = (mode == Mode.H_VS_IA);
+        configCouleur.setVisible(couleurVisible);
+        configCouleur.setManaged(couleurVisible);
+        sepCouleur.setVisible(couleurVisible);
+        sepCouleur.setManaged(couleurVisible);
+
         switch (mode) {
             case H_VS_H -> {
                 setIAVisible(false, false);
@@ -174,9 +206,10 @@ public class AccueilController {
                 nomNoir.setPromptText("Ex : Bob");
             }
             case H_VS_IA -> {
-                setIAVisible(false, true);
-                nomBlanc.setPromptText("Votre nom");
-                nomNoir.setPromptText("Nom de l'IA");
+                boolean joueurEstBlanc = btnJouerBlanc.isSelected();
+                setIAVisible(!joueurEstBlanc, joueurEstBlanc);
+                nomBlanc.setPromptText(joueurEstBlanc ? "Votre nom" : "Nom de l'IA");
+                nomNoir.setPromptText(joueurEstBlanc ? "Nom de l'IA" : "Votre nom");
             }
             case IA_VS_IA -> {
                 setIAVisible(true, true);
@@ -186,23 +219,30 @@ public class AccueilController {
         }
     }
 
-    /** Affiche ou masque les lignes "IA" et "Profondeur" selon le mode. */
+    /** Affiche ou masque les lignes "IA" et "Temps" selon le mode. */
     private void setIAVisible(boolean blancsIA, boolean noirIA) {
         rowIABlanc.setVisible(blancsIA);
         rowIABlanc.setManaged(blancsIA);
-        rowDepthBlanc.setVisible(blancsIA && iaBlanc.getSelectionModel().getSelectedIndex() == 0);
-        rowDepthBlanc.setManaged(blancsIA);
+        rowTimeBlanc.setVisible(blancsIA && iaBlanc.getSelectionModel().getSelectedIndex() == 0);
+        rowTimeBlanc.setManaged(blancsIA);
 
         rowIANoir.setVisible(noirIA);
         rowIANoir.setManaged(noirIA);
-        rowDepthNoir.setVisible(noirIA && iaNoir.getSelectionModel().getSelectedIndex() == 0);
-        rowDepthNoir.setManaged(noirIA);
+        rowTimeNoir.setVisible(noirIA && iaNoir.getSelectionModel().getSelectedIndex() == 0);
+        rowTimeNoir.setManaged(noirIA);
     }
 
     /** Crée un joueur (humain ou IA) selon le mode et la configuration du formulaire. */
     private Player creerJoueur(Color color, Mode mode, boolean isBlanc) {
-        boolean estIA = (mode == Mode.IA_VS_IA)
-                || (mode == Mode.H_VS_IA && !isBlanc);
+        boolean estIA;
+        if (mode == Mode.IA_VS_IA) {
+            estIA = true;
+        } else if (mode == Mode.H_VS_IA) {
+            boolean joueurEstBlanc = btnJouerBlanc.isSelected();
+            estIA = (isBlanc != joueurEstBlanc);
+        } else {
+            estIA = false;
+        }
 
         String nom = (isBlanc ? nomBlanc : nomNoir).getText().trim();
         if (nom.isEmpty()) nom = (color == Color.WHITE ? "Blanc" : "Noir");
@@ -214,23 +254,23 @@ public class AccueilController {
         // Créer l'IA selon la sélection
         ComboBox<String> combo = isBlanc ? iaBlanc : iaNoir;
         return creerIA(color, nom, combo.getSelectionModel().getSelectedIndex(),
-                       isBlanc ? depthBlanc : depthNoir);
+                       isBlanc ? timeBlanc : timeNoir);
     }
 
     /**
      * Factory d'IA selon l'index sélectionné dans la ComboBox.
      * L'ordre doit correspondre à {@link #IA_OPTIONS}.
      *
-     * @param color      couleur du camp
-     * @param nom        nom affiché
-     * @param iaIndex    index sélectionné (0=AlphaBeta, 1=Random)
-     * @param depthSpinner spinner de profondeur (utilisé uniquement pour AlphaBeta)
+     * @param color       couleur du camp
+     * @param nom         nom affiché
+     * @param iaIndex     index sélectionné (0=AlphaBeta, 1=Random)
+     * @param timeSpinner spinner de temps en secondes (utilisé uniquement pour AlphaBeta)
      */
-    private Player creerIA(Color color, String nom, int iaIndex, Spinner<Integer> depthSpinner) {
+    private Player creerIA(Color color, String nom, int iaIndex, Spinner<Integer> timeSpinner) {
         return switch (iaIndex) {
             case 0 -> {  // AlphaBeta
-                int depth = depthSpinner.getValue();
-                yield new AlphaBetaPlayer(color, depth, nom + " (AB-" + depth + ")");
+                long timeLimitMs = timeSpinner.getValue() * 1000L;
+                yield new AlphaBetaPlayer(color, timeLimitMs, nom + " (" + timeSpinner.getValue() + "s)");
             }
             case 1 -> new RandomAIPlayer(color, nom, new java.util.Random()); // Random
             default -> new RandomAIPlayer(color, nom, new java.util.Random());

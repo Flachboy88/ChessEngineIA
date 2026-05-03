@@ -87,13 +87,13 @@ public final class PositionEvaluator {
      * @return score en centipions (positif = avantage Blancs)
      */
     public static int evaluate(BitboardState state) {
-        double phase = gamePhase(state);
+        int phase256 = gamePhase(state);
 
         int score = 0;
-        score += materialAndPst(state, phase);
-        score += PawnEvaluator.evaluate(state, phase);
-        score += MobilityEvaluator.evaluate(state, phase);
-        score += KingSafety.evaluate(state, phase);
+        score += materialAndPst(state, phase256);
+        score += PawnEvaluator.evaluate(state, phase256);
+        score += MobilityEvaluator.evaluate(state, phase256);
+        score += KingSafety.evaluate(state, phase256);
         return score;
     }
 
@@ -110,10 +110,11 @@ public final class PositionEvaluator {
     }
 
     /**
-     * Calcule la phase de jeu : 1.0 = ouverture, 0.0 = finale pure.
+     * Calcule la phase de jeu : 256 = ouverture pure, 0 = finale pure.
      * Basée sur le matériel MG des pièces lourdes et légères restantes (sans pions/rois).
+     * Retourne un entier dans [0, 256] pour éviter tout calcul flottant.
      */
-    public static double gamePhase(BitboardState state) {
+    public static int gamePhase(BitboardState state) {
         int material = 0;
         for (Color c : Color.values()) {
             material += Long.bitCount(state.getBitboard(c, Piece.KNIGHT)) * MATERIAL_MG[Piece.KNIGHT.index];
@@ -121,7 +122,8 @@ public final class PositionEvaluator {
             material += Long.bitCount(state.getBitboard(c, Piece.ROOK))   * MATERIAL_MG[Piece.ROOK.index];
             material += Long.bitCount(state.getBitboard(c, Piece.QUEEN))  * MATERIAL_MG[Piece.QUEEN.index];
         }
-        return Math.min(1.0, (double) material / MAX_PHASE_MATERIAL);
+        // Clamp à [0, 256]
+        return Math.min(256, material * 256 / MAX_PHASE_MATERIAL);
     }
 
     // ── Matériel + PST (toutes pièces, MG+EG) ────────────────────────────────
@@ -130,12 +132,12 @@ public final class PositionEvaluator {
      * Score matériel + PST pour les deux camps, avec interpolation MG/EG
      * appliquée à <b>toutes</b> les pièces (y compris pions, cavaliers, fous, tours, dame).
      */
-    private static int materialAndPst(BitboardState state, double phase) {
-        return materialAndPstSide(state, Color.WHITE, phase)
-             - materialAndPstSide(state, Color.BLACK, phase);
+    private static int materialAndPst(BitboardState state, int phase256) {
+        return materialAndPstSide(state, Color.WHITE, phase256)
+             - materialAndPstSide(state, Color.BLACK, phase256);
     }
 
-    private static int materialAndPstSide(BitboardState state, Color color, double phase) {
+    private static int materialAndPstSide(BitboardState state, Color color, int phase256) {
         int score = 0;
         boolean isBlack = (color == Color.BLACK);
 
@@ -156,7 +158,7 @@ public final class PositionEvaluator {
                 // Interpolation MG/EG pour le matériel et les PST ensemble
                 int mgTotal = matMg + pstMg[pstIdx];
                 int egTotal = matEg + pstEg[pstIdx];
-                score += (int) (mgTotal * phase + egTotal * (1.0 - phase));
+                score += PawnEvaluator.interpolate(mgTotal, egTotal, phase256);
             }
         }
         return score;

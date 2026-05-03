@@ -81,14 +81,14 @@ public final class MobilityEvaluator {
      * @param phase phase de jeu (1.0 = ouverture, 0.0 = finale)
      * @return score interpolé MG/EG
      */
-    public static int evaluate(BitboardState state, double phase) {
-        return evaluateSide(state, Color.WHITE, phase)
-             - evaluateSide(state, Color.BLACK, phase);
+    public static int evaluate(BitboardState state, int phase256) {
+        return evaluateSide(state, Color.WHITE, phase256)
+             - evaluateSide(state, Color.BLACK, phase256);
     }
 
     // ── Évaluation par camp ───────────────────────────────────────────────────
 
-    private static int evaluateSide(BitboardState state, Color us, double phase) {
+    private static int evaluateSide(BitboardState state, Color us, int phase256) {
         long occ      = state.getAllOccupancy();
         long ourPawns = state.getBitboard(us, Piece.PAWN);
         long ourKing  = state.getBitboard(us, Piece.KING);
@@ -175,7 +175,7 @@ public final class MobilityEvaluator {
             scoreEg += Long.bitCount(attacks) * QUEEN_MOB_EG;
         }
 
-        return PawnEvaluator.interpolate(scoreMg, scoreEg, phase);
+        return PawnEvaluator.interpolate(scoreMg, scoreEg, phase256);
     }
 
     // ── Attaques pseudo-légales ───────────────────────────────────────────────

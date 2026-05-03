@@ -62,14 +62,14 @@ public final class PawnEvaluator {
      * @param phase phase de jeu (1.0 = ouverture, 0.0 = finale)
      * @return score interpolé MG/EG
      */
-    public static int evaluate(BitboardState state, double phase) {
-        return evaluateSide(state, Color.WHITE, phase)
-             - evaluateSide(state, Color.BLACK, phase);
+    public static int evaluate(BitboardState state, int phase256) {
+        return evaluateSide(state, Color.WHITE, phase256)
+             - evaluateSide(state, Color.BLACK, phase256);
     }
 
     // ── Évaluation par camp ───────────────────────────────────────────────────
 
-    private static int evaluateSide(BitboardState state, Color us, double phase) {
+    private static int evaluateSide(BitboardState state, Color us, int phase256) {
         long ourPawns   = state.getBitboard(us, model.Piece.PAWN);
         long theirPawns = state.getBitboard(us.opposite(), model.Piece.PAWN);
         boolean white   = (us == Color.WHITE);
@@ -119,7 +119,7 @@ public final class PawnEvaluator {
             }
         }
 
-        return interpolate(scoreMg, scoreEg, phase);
+        return interpolate(scoreMg, scoreEg, phase256);
     }
 
     // ── Helpers bitboard ──────────────────────────────────────────────────────
@@ -164,8 +164,8 @@ public final class PawnEvaluator {
         return cols & front;
     }
 
-    /** Interpolation linéaire entre score MG et EG selon la phase. */
-    static int interpolate(int mg, int eg, double phase) {
-        return (int) (mg * phase + eg * (1.0 - phase));
+    /** Interpolation linéaire entre score MG et EG selon la phase (0–256). */
+    public static int interpolate(int mg, int eg, int phase256) {
+        return (mg * phase256 + eg * (256 - phase256)) >> 8;
     }
 }

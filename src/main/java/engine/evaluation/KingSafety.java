@@ -58,12 +58,10 @@ public final class KingSafety {
      * @param phase phase de jeu (1.0 = ouverture, 0.0 = finale)
      * @return score de sécurité pondéré
      */
-    public static int evaluate(BitboardState state, double phase) {
-        // La sécurité du roi est essentiellement un concept de milieu de jeu.
-        // En finale (phase→0), on réduit fortement son poids.
+    public static int evaluate(BitboardState state, int phase256) {
         int whiteScore = evaluateSide(state, Color.WHITE);
         int blackScore = evaluateSide(state, Color.BLACK);
-        return (int) ((whiteScore - blackScore) * phase);
+        return (whiteScore - blackScore) * phase256 >> 8;
     }
 
     // ── Évaluation par camp ───────────────────────────────────────────────────

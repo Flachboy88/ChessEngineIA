@@ -373,15 +373,16 @@ class ChessEngineTest {
             assertTrue(score > 800, "Score attendu > 800, obtenu : " + score);
         }
 
-        @Test @DisplayName("Phase de jeu : initiale ≈ 1.0")
+        @Test @DisplayName("Phase de jeu : initiale ≈ 256")
         void phaseJeuInitiale() {
-            assertEquals(1.0, PositionEvaluator.gamePhase(new ChessAPI().getBitboardState()), 0.05);
+            assertTrue(PositionEvaluator.gamePhase(new ChessAPI().getBitboardState()) >= 240,
+                "Phase initiale doit être >= 240 (sur 256)");
         }
 
-        @Test @DisplayName("Phase de jeu : rois seuls = 0.0")
+        @Test @DisplayName("Phase de jeu : rois seuls = 0")
         void phaseJeuFinale() {
-            assertEquals(0.0, PositionEvaluator.gamePhase(
-                new ChessAPI("4k3/8/8/8/8/8/8/4K3 w - - 0 1").getBitboardState()), 0.01);
+            assertEquals(0, PositionEvaluator.gamePhase(
+                new ChessAPI("4k3/8/8/8/8/8/8/4K3 w - - 0 1").getBitboardState()));
         }
 
         @Test @DisplayName("AlphaBeta prend une pièce gratuite")
@@ -402,29 +403,29 @@ class ChessEngineTest {
             assertNotEquals("d1d8", AlphaBetaSearch.chercherMeilleurCoup(gs, 3).toUci());
         }
 
-        @Test @DisplayName("AlphaBetaPlayer joue un coup légal (depth=3)")
+        @Test @DisplayName("AlphaBetaPlayer joue un coup légal (2s)")
         void alphaPlayerJoueCoupLegal() {
-            var ia = new AlphaBetaPlayer(Color.WHITE, 3);
+            var ia = new AlphaBetaPlayer(Color.WHITE, 2_000L);
             ChessAPI api = new ChessAPI();
             Move coup = ia.getNextMove(new GameState(api.getBitboardState()));
             assertNotNull(coup);
             assertTrue(api.getCoupsLegaux().contains(coup));
         }
 
-        @Test @DisplayName("AlphaBeta vs Random : AlphaBeta ne perd pas")
+        @Test @DisplayName("AlphaBeta vs Random : AlphaBeta ne perd pas (2s)")
         void alphaBeatRandom() {
             AlphaBetaSearch.clearTT();
             var api = new ChessAPI();
-            api.setWhitePlayer(new AlphaBetaPlayer(Color.WHITE, 3));
+            api.setWhitePlayer(new AlphaBetaPlayer(Color.WHITE, 2_000L));
             api.setBlackPlayer(new RandomAIPlayer(Color.BLACK));
             int moves = 0;
             while (!api.estTerminee() && moves++ < 200) api.jouerCoupJoueur();
             assertNotEquals(GameResult.BLACK_WINS, api.getEtatPartie());
         }
 
-        @Test @DisplayName("AlphaBetaPlayer refuse profondeur < 1")
-        void profondeurInvalide() {
-            assertThrows(IllegalArgumentException.class, () -> new AlphaBetaPlayer(Color.WHITE, 0));
+        @Test @DisplayName("AlphaBetaPlayer refuse temps < 100ms")
+        void tempsInvalide() {
+            assertThrows(IllegalArgumentException.class, () -> new AlphaBetaPlayer(Color.WHITE, 50L));
         }
     }
 
@@ -441,8 +442,8 @@ class ChessEngineTest {
         void pionsDoublés() {
             var avec = new ChessAPI("4k3/8/8/8/8/4P3/4P3/4K3 w - - 0 1").getBitboardState();
             var sans = new ChessAPI("4k3/8/8/8/8/3P4/4P3/4K3 w - - 0 1").getBitboardState();
-            int scorePionsDoubles = PawnEvaluator.evaluate(avec, 0.5);
-            int scorePionsNormaux = PawnEvaluator.evaluate(sans, 0.5);
+            int scorePionsDoubles = PawnEvaluator.evaluate(avec, 128);
+            int scorePionsNormaux = PawnEvaluator.evaluate(sans, 128);
             assertTrue(scorePionsDoubles < scorePionsNormaux,
                 "Pions doublés doivent être moins bien évalués que pions normaux. "
                 + "Doubles=" + scorePionsDoubles + " Normaux=" + scorePionsNormaux);
@@ -452,8 +453,8 @@ class ChessEngineTest {
         void pionsIsolés() {
             var isole  = new ChessAPI("4k3/8/8/8/8/P7/8/4K3 w - - 0 1").getBitboardState();
             var normal = new ChessAPI("4k3/8/8/8/3P4/8/8/4K3 w - - 0 1").getBitboardState();
-            int scoreIsole  = PawnEvaluator.evaluate(isole,  0.5);
-            int scoreNormal = PawnEvaluator.evaluate(normal, 0.5);
+            int scoreIsole  = PawnEvaluator.evaluate(isole,  128);
+            int scoreNormal = PawnEvaluator.evaluate(normal, 128);
             assertTrue(scoreIsole <= scoreNormal,
                 "Pion isolé ne doit pas être mieux évalué. Isolé=" + scoreIsole + " Normal=" + scoreNormal);
         }
@@ -462,8 +463,8 @@ class ChessEngineTest {
         void pionPasséBonus() {
             var avec = new ChessAPI("4k3/8/4P3/8/8/8/8/4K3 w - - 0 1").getBitboardState();
             var sans = new ChessAPI("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1").getBitboardState();
-            int bonusAvance = PawnEvaluator.evaluate(avec, 0.0);
-            int bonusDepart = PawnEvaluator.evaluate(sans, 0.0);
+            int bonusAvance = PawnEvaluator.evaluate(avec, 0);
+            int bonusDepart = PawnEvaluator.evaluate(sans, 0);
             assertTrue(bonusAvance > bonusDepart,
                 "Pion passé avancé doit valoir plus en finale. Avancé=" + bonusAvance + " Départ=" + bonusDepart);
         }
@@ -471,7 +472,7 @@ class ChessEngineTest {
         @Test @DisplayName("PawnEvaluator : symétrie en position initiale")
         void pawnEvalSymetrie() {
             var bs = new ChessAPI().getBitboardState();
-            assertEquals(0, PawnEvaluator.evaluate(bs, 1.0),
+            assertEquals(0, PawnEvaluator.evaluate(bs, 256),
                 "PawnEvaluator doit retourner 0 en position initiale symétrique");
         }
 
@@ -480,7 +481,7 @@ class ChessEngineTest {
         @Test @DisplayName("Mobilité : paire de fous donne un bonus")
         void paireDeFous() {
             var bs = new ChessAPI("4k3/8/8/8/8/8/8/2BB1K2 w - - 0 1").getBitboardState();
-            int score = MobilityEvaluator.evaluate(bs, 0.5);
+            int score = MobilityEvaluator.evaluate(bs, 128);
             assertTrue(score > 0, "La paire de fous blancs doit donner un avantage. Score=" + score);
         }
 
@@ -488,8 +489,8 @@ class ChessEngineTest {
         void tourColonneOuverte() {
             var ouverte = new ChessAPI("4k3/8/8/8/8/8/8/4R1K1 w - - 0 1").getBitboardState();
             var bloquee = new ChessAPI("4k3/8/8/8/8/8/4P3/4R1K1 w - - 0 1").getBitboardState();
-            int scoreOuverte = MobilityEvaluator.evaluate(ouverte, 0.5);
-            int scoreBloquee = MobilityEvaluator.evaluate(bloquee, 0.5);
+            int scoreOuverte = MobilityEvaluator.evaluate(ouverte, 128);
+            int scoreBloquee = MobilityEvaluator.evaluate(bloquee, 128);
             assertTrue(scoreOuverte > scoreBloquee,
                 "Tour colonne ouverte doit valoir plus. Ouverte=" + scoreOuverte + " Bloquée=" + scoreBloquee);
         }
@@ -497,7 +498,7 @@ class ChessEngineTest {
         @Test @DisplayName("Mobilité : symétrie en position initiale")
         void mobiliteSymetrie() {
             var bs = new ChessAPI().getBitboardState();
-            assertEquals(0, MobilityEvaluator.evaluate(bs, 1.0),
+            assertEquals(0, MobilityEvaluator.evaluate(bs, 256),
                 "MobilityEvaluator doit retourner 0 en position initiale symétrique");
         }
 
@@ -507,22 +508,22 @@ class ChessEngineTest {
         void bouclierDePions() {
             var avecBouclier = new ChessAPI("4k3/8/8/8/8/8/5PPP/6K1 w - - 0 1").getBitboardState();
             var sansBouclier = new ChessAPI("4k3/8/8/8/8/8/8/6K1 w - - 0 1").getBitboardState();
-            int scoreAvec = KingSafety.evaluate(avecBouclier, 0.8);
-            int scoreSans = KingSafety.evaluate(sansBouclier, 0.8);
+            int scoreAvec = KingSafety.evaluate(avecBouclier, 205); // ~0.8 * 256
+            int scoreSans = KingSafety.evaluate(sansBouclier, 205);
             assertTrue(scoreAvec > scoreSans,
                 "Bouclier de pions doit améliorer la sécurité. Avec=" + scoreAvec + " Sans=" + scoreSans);
         }
 
         @Test @DisplayName("Sécurité roi : symétrie parfaite → score = 0")
         void kingSafetySymetrie() {
-            assertEquals(0, KingSafety.evaluate(new ChessAPI().getBitboardState(), 1.0),
+            assertEquals(0, KingSafety.evaluate(new ChessAPI().getBitboardState(), 256),
                 "KingSafety doit retourner 0 en position initiale symétrique");
         }
 
         @Test @DisplayName("Sécurité roi : impact réduit en finale (phase=0)")
         void kingSafetyNullEnFinale() {
             var bs = new ChessAPI("4k3/8/8/8/8/8/8/6K1 w - - 0 1").getBitboardState();
-            assertEquals(0, KingSafety.evaluate(bs, 0.0),
+            assertEquals(0, KingSafety.evaluate(bs, 0),
                 "KingSafety doit être nul en finale pure (phase=0)");
         }
 
@@ -538,12 +539,12 @@ class ChessEngineTest {
         @Test @DisplayName("Interpolation MG/EG : valeurs cohérentes aux extrêmes")
         void interpolationCoherence() {
             var bs = new ChessAPI().getBitboardState();
-            double phaseMg = PositionEvaluator.gamePhase(bs);
-            assertTrue(phaseMg >= 0.9, "Phase initiale doit être >= 0.9, obtenu : " + phaseMg);
+            int phaseMg = PositionEvaluator.gamePhase(bs);
+            assertTrue(phaseMg >= 230, "Phase initiale doit être >= 230/256, obtenu : " + phaseMg);
 
             var bsFinale = new ChessAPI("4k3/8/8/8/8/8/8/4K3 w - - 0 1").getBitboardState();
-            double phaseEg = PositionEvaluator.gamePhase(bsFinale);
-            assertEquals(0.0, phaseEg, 0.01, "Phase finale doit être 0.0");
+            int phaseEg = PositionEvaluator.gamePhase(bsFinale);
+            assertEquals(0, phaseEg, "Phase finale doit être 0");
         }
 
         @Test @DisplayName("AlphaBeta avec nouvelle évaluation : mat en 2 détecté")
