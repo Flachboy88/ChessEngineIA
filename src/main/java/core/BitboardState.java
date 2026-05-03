@@ -1,5 +1,6 @@
 package core;
 
+import engine.search.ZobristHasher;
 import model.Color;
 import model.Piece;
 import model.Square;
@@ -38,8 +39,28 @@ public final class BitboardState {
     /** Numéro du coup complet (commence à 1, incrémenté après le coup des noirs). */
     private final int fullMoveNumber;
 
+    /**
+     * Hash Zobrist de cette position.
+     * Calculé une fois à la création, mis à jour incrémentalement dans applyMove.
+     * Permet d'identifier rapidement les positions déjà vues (table de transposition).
+     */
+    private final long zobristHash;
+
     // ── Constructeur privé ────────────────────────────────────────────────────
 
+    private BitboardState(long[][] bitboards, Color sideToMove,
+                          CastlingRights castlingRights, Square enPassantTarget,
+                          int halfMoveClock, int fullMoveNumber, long zobristHash) {
+        this.bitboards       = bitboards;
+        this.sideToMove      = sideToMove;
+        this.castlingRights  = castlingRights;
+        this.enPassantTarget = enPassantTarget;
+        this.halfMoveClock   = halfMoveClock;
+        this.fullMoveNumber  = fullMoveNumber;
+        this.zobristHash     = zobristHash;
+    }
+
+    /** Constructeur interne sans hash pré-calculé — le hash est calculé depuis zéro. */
     private BitboardState(long[][] bitboards, Color sideToMove,
                           CastlingRights castlingRights, Square enPassantTarget,
                           int halfMoveClock, int fullMoveNumber) {
@@ -49,6 +70,9 @@ public final class BitboardState {
         this.enPassantTarget = enPassantTarget;
         this.halfMoveClock   = halfMoveClock;
         this.fullMoveNumber  = fullMoveNumber;
+        int epFile = (enPassantTarget != null) ? enPassantTarget.file : -1;
+        this.zobristHash = ZobristHasher.computeHash(
+                bitboards, sideToMove, castlingRights.getRights(), epFile);
     }
 
     // ── Position initiale ─────────────────────────────────────────────────────
@@ -121,56 +145,88 @@ public final class BitboardState {
     public Square getEnPassantTarget() { return enPassantTarget; }
     public int getHalfMoveClock()     { return halfMoveClock; }
     public int getFullMoveNumber()    { return fullMoveNumber; }
+    /** Retourne le hash Zobrist de cette position (pour la table de transposition). */
+    public long getZobristHash()      { return zobristHash; }
 
     // ── Builders (retournent un nouvel état immuable) ─────────────────────────
 
-    /** Pose une pièce sur une case (retourne un nouvel état). */
+    // ── Builders avec mise à jour incrémentale du hash Zobrist ──────────────
+    //
+    // Chaque builder prend en paramètre le hash courant et applique les XOR
+    // nécessaires pour refléter le changement. C'est quasi-gratuit (1-2 XOR)
+    // comparé à un recalcul complet depuis zéro.
+
+    /**
+     * Pose une pièce sur une case (retourne un nouvel état).
+     * Met à jour le hash Zobrist incrémentalement.
+     */
     public BitboardState withPiece(Color color, Piece piece, Square square) {
         long[][] newBbs = copyBitboards();
         newBbs[color.ordinal()][piece.index] = Bitboard.setBit(
             newBbs[color.ordinal()][piece.index], square.index);
+        long newHash = zobristHash ^ ZobristHasher.PIECE_HASH[color.ordinal()][piece.index][square.index];
         return new BitboardState(newBbs, sideToMove, castlingRights, enPassantTarget,
-                                 halfMoveClock, fullMoveNumber);
+                                 halfMoveClock, fullMoveNumber, newHash);
     }
 
-    /** Retire une pièce d'une case (retourne un nouvel état). */
+    /**
+     * Retire une pièce d'une case (retourne un nouvel état).
+     * Met à jour le hash Zobrist incrémentalement (XOR = retrait).
+     */
     public BitboardState withoutPiece(Color color, Piece piece, Square square) {
         long[][] newBbs = copyBitboards();
         newBbs[color.ordinal()][piece.index] = Bitboard.clearBit(
             newBbs[color.ordinal()][piece.index], square.index);
+        long newHash = zobristHash ^ ZobristHasher.PIECE_HASH[color.ordinal()][piece.index][square.index];
         return new BitboardState(newBbs, sideToMove, castlingRights, enPassantTarget,
-                                 halfMoveClock, fullMoveNumber);
+                                 halfMoveClock, fullMoveNumber, newHash);
     }
 
     public BitboardState withSideToMove(Color color) {
+        // XOR le hash de changement de tour si la couleur change réellement
+        long newHash = (color != sideToMove)
+            ? zobristHash ^ ZobristHasher.SIDE_TO_MOVE_HASH
+            : zobristHash;
         return new BitboardState(bitboards, color, castlingRights, enPassantTarget,
-                                 halfMoveClock, fullMoveNumber);
+                                 halfMoveClock, fullMoveNumber, newHash);
     }
 
     public BitboardState withCastlingRights(CastlingRights rights) {
+        // On retire l'ancien masque de roque et on ajoute le nouveau
+        long newHash = zobristHash
+            ^ ZobristHasher.CASTLING_HASH[castlingRights.getRights()]
+            ^ ZobristHasher.CASTLING_HASH[rights.getRights()];
         return new BitboardState(bitboards, sideToMove, rights, enPassantTarget,
-                                 halfMoveClock, fullMoveNumber);
+                                 halfMoveClock, fullMoveNumber, newHash);
     }
 
     public BitboardState withEnPassantTarget(Square ep) {
+        long newHash = zobristHash;
+        // Retirer l'ancien en passant
+        if (enPassantTarget != null)
+            newHash ^= ZobristHasher.EN_PASSANT_HASH[enPassantTarget.file];
+        // Ajouter le nouveau
+        if (ep != null)
+            newHash ^= ZobristHasher.EN_PASSANT_HASH[ep.file];
         return new BitboardState(bitboards, sideToMove, castlingRights, ep,
-                                 halfMoveClock, fullMoveNumber);
+                                 halfMoveClock, fullMoveNumber, newHash);
     }
 
     public BitboardState withHalfMoveClock(int clock) {
+        // Le half-move clock n'affecte pas le hash Zobrist (règle des 50 coups)
         return new BitboardState(bitboards, sideToMove, castlingRights, enPassantTarget,
-                                 clock, fullMoveNumber);
+                                 clock, fullMoveNumber, zobristHash);
     }
 
     public BitboardState withFullMoveNumber(int number) {
         return new BitboardState(bitboards, sideToMove, castlingRights, enPassantTarget,
-                                 halfMoveClock, number);
+                                 halfMoveClock, number, zobristHash);
     }
 
-    /** Retourne une copie complète des bitboards. */
+    /** Retourne une copie complète des bitboards (hash conservé). */
     public BitboardState copy() {
         return new BitboardState(copyBitboards(), sideToMove, castlingRights,
-                                 enPassantTarget, halfMoveClock, fullMoveNumber);
+                                 enPassantTarget, halfMoveClock, fullMoveNumber, zobristHash);
     }
 
     private long[][] copyBitboards() {

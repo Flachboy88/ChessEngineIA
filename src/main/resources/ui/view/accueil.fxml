@@ -9,7 +9,7 @@
            xmlns:fx="http://javafx.com/fxml/1"
            fx:controller="ui.controller.AccueilController"
            styleClass="bg-pane"
-           prefWidth="1024" prefHeight="720">
+           prefWidth="1024" prefHeight="900">
 
     <!-- Fond dégradé -->
     <VBox styleClass="bg-pane" prefWidth="780" prefHeight="620">

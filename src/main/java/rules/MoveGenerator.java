@@ -12,9 +12,9 @@ import java.util.List;
  * Utilise des bitboards pour la génération pseudo-légale,
  * puis filtre les coups laissant le roi en échec.
  */
-public final class MoveGenerator {
+public class MoveGenerator {
 
-    private MoveGenerator() {}
+    public MoveGenerator() {}
 
     /**
      * Retourne la liste de tous les coups légaux pour le camp qui doit jouer.
