@@ -43,15 +43,15 @@
 /* Logo pièce */
 .logo-piece {
     -fx-text-fill: -fx-gold;
-    -fx-font-size: 52px;
-    -fx-effect: dropshadow(gaussian, #c9a84c88, 20, 0.4, 0, 0);
+    -fx-font-size: 38px;
+    -fx-effect: dropshadow(gaussian, #c9a84c88, 16, 0.4, 0, 0);
 }
 
 /* Titre principal */
 .app-title {
     -fx-text-fill: -fx-ivory;
     -fx-font-family: "Georgia";
-    -fx-font-size: 34px;
+    -fx-font-size: 26px;
     -fx-font-weight: bold;
     -fx-letter-spacing: 6px;
     -fx-effect: dropshadow(gaussian, #00000088, 8, 0.3, 0, 2);
@@ -60,7 +60,7 @@
 .app-subtitle {
     -fx-text-fill: -fx-ivory-dim;
     -fx-font-family: "Palatino Linotype";
-    -fx-font-size: 13px;
+    -fx-font-size: 12px;
     -fx-font-style: italic;
 }
 
@@ -84,7 +84,7 @@
     -fx-border-color: -fx-gold-dim;
     -fx-border-width: 1px;
     -fx-border-radius: 6px;
-    -fx-padding: 28 32 28 32;
+    -fx-padding: 18 24 18 24;
     -fx-effect: dropshadow(gaussian, #000000bb, 24, 0.4, 0, 6);
 }
 
@@ -101,8 +101,8 @@
     -fx-background-color: #2a2418;
     -fx-text-fill: -fx-ivory-dim;
     -fx-font-family: "Palatino Linotype";
-    -fx-font-size: 13px;
-    -fx-padding: 10 16 10 16;
+    -fx-font-size: 12px;
+    -fx-padding: 7 10 7 10;
     -fx-background-radius: 4px;
     -fx-border-color: #3a3020;
     -fx-border-width: 1px;
@@ -223,10 +223,10 @@
     -fx-background-color: linear-gradient(to bottom, #b8960e, #8a6e08);
     -fx-text-fill: #1a1408;
     -fx-font-family: "Georgia";
-    -fx-font-size: 14px;
+    -fx-font-size: 13px;
     -fx-font-weight: bold;
     -fx-letter-spacing: 2px;
-    -fx-padding: 14 0 14 0;
+    -fx-padding: 10 0 10 0;
     -fx-background-radius: 4px;
     -fx-cursor: hand;
     -fx-effect: dropshadow(gaussian, #c9a84c55, 12, 0.4, 0, 3);
@@ -536,4 +536,14 @@
     -fx-font-family: "Georgia";
     -fx-font-size: 11px;
     -fx-alignment: CENTER;
+}
+
+/* En-tête accueil */
+.header-vbox {
+    -fx-padding: 16 0 0 0;
+}
+
+/* Séparateur doré accueil */
+.sep-hbox {
+    -fx-padding: 12 0 12 0;
 }

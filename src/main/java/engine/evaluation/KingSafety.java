@@ -5,144 +5,118 @@ import core.BitboardState;
 import model.Color;
 import model.Piece;
 import rules.AttackTables;
+import rules.MagicBitboards;
 
 /**
  * Évaluation de la sécurité du roi.
+ * Les attaques glissantes utilisent {@link MagicBitboards} — O(1).
  *
- * <h2>Critères implémentés</h2>
- * <ul>
- *   <li><b>Bouclier de pions</b> — bonus pour les pions devant le roi roqé.
- *       Malus si un pion bouclier est absent ou avancé (trou dans le bouclier).</li>
- *   <li><b>Cases voisines attaquées</b> — malus pour chaque case autour du roi
- *       attaquée par une pièce ennemie (hors pions).</li>
- *   <li><b>Colonnes ouvertes proches du roi</b> — malus si une colonne ouverte
- *       ou semi-ouverte se trouve sur la colonne du roi ou adjacente (tour/dame ennemies
- *       ont accès direct).</li>
- * </ul>
- *
- * <h2>Pondération selon la phase</h2>
- * La sécurité du roi est <b>prépondérante en milieu de jeu</b> (quand les pièces
- * lourdes ennemies peuvent attaquer) et négligeable en finale (les rois peuvent
- * sortir au centre). On multiplie donc par la phase de jeu.
- *
- * <h2>Performance</h2>
- * Tout est bitboard — aucun `generateLegalMoves`. Le coût est O(1).
+ * <h2>Modèle d'attaque non-linéaire</h2>
+ * Unités d'attaque accumulées par type de pièce ennemie dans la zone du roi,
+ * transformées en pénalité via une table non-linéaire (danger exponentiel).
  */
 public final class KingSafety {
 
-    // ── Poids ─────────────────────────────────────────────────────────────────
+    private static final int PAWN_SHIELD_CLOSE = 10;
+    private static final int PAWN_SHIELD_FAR   =  5;
+    private static final int PAWN_SHIELD_MISS  = -20;
 
-    /** Bonus pour un pion bouclier au rang immédiat devant le roi (g2/h2 côté roqé). */
-    private static final int PAWN_SHIELD_CLOSE  =  8;
-    /** Bonus pour un pion bouclier au 2e rang devant le roi (g3/h3). */
-    private static final int PAWN_SHIELD_FAR    =  4;
-    /** Malus si un pion bouclier est complètement absent. */
-    private static final int PAWN_SHIELD_MISS   = -15;
+    private static final int KNIGHT_ATTACK_WEIGHT = 2;
+    private static final int BISHOP_ATTACK_WEIGHT = 2;
+    private static final int ROOK_ATTACK_WEIGHT   = 3;
+    private static final int QUEEN_ATTACK_WEIGHT  = 5;
 
-    /** Malus par case voisine du roi attaquée par une pièce ennemie (hors pions). */
-    private static final int KING_ATTACK_UNIT   = -4;
+    private static final int[] KING_DANGER_TABLE = {
+          0,   0,   1,   2,   3,   5,   7,   9,  12,  15,
+         18,  22,  26,  30,  35,  39,  44,  50,  56,  62,
+         68,  75,  82,  85,  89,  97, 105, 113, 122, 131,
+        140, 150, 169, 180, 191, 202, 213, 225, 237, 248,
+        260, 272, 283, 295, 307, 319, 330, 342, 353, 364,
+        375, 386, 396, 406, 416, 425, 434, 443, 451, 459,
+        466, 473, 480, 486, 492, 497, 502, 506, 510, 514,
+        517, 520, 522, 524, 526, 527, 528, 529, 530, 530
+    };
 
-    /** Malus par colonne ouverte ou semi-ouverte adjacent au roi (tour/dame adverses). */
-    private static final int OPEN_FILE_NEAR_KING = -10;
+    private static final int OPEN_FILE_NEAR_KING      = -12;
+    private static final int OPEN_FILE_NEAR_KING_FULL = -20;
 
     private KingSafety() {}
 
-    // ── API publique ──────────────────────────────────────────────────────────
-
-    /**
-     * Retourne le score de sécurité du roi du point de vue des Blancs.
-     * Score positif = les Blancs sont plus en sécurité.
-     * Multiplié par la phase (évaluation MG principalement).
-     *
-     * @param state état courant
-     * @param phase phase de jeu (1.0 = ouverture, 0.0 = finale)
-     * @return score de sécurité pondéré
-     */
     public static int evaluate(BitboardState state, int phase256) {
         int whiteScore = evaluateSide(state, Color.WHITE);
         int blackScore = evaluateSide(state, Color.BLACK);
         return (whiteScore - blackScore) * phase256 >> 8;
     }
 
-    // ── Évaluation par camp ───────────────────────────────────────────────────
-
     private static int evaluateSide(BitboardState state, Color us) {
         long kingBB = state.getBitboard(us, Piece.KING);
         if (kingBB == 0) return 0;
 
-        int kingSq  = Long.numberOfTrailingZeros(kingBB);
+        int kingSq   = Long.numberOfTrailingZeros(kingBB);
         int kingFile = kingSq % 8;
-        int kingRank = kingSq / 8;
         boolean white = (us == Color.WHITE);
 
         long ourPawns = state.getBitboard(us, Piece.PAWN);
-        long allPawns = ourPawns | state.getBitboard(us.opposite(), Piece.PAWN);
         long occ      = state.getAllOccupancy();
 
-        int score = 0;
+        int score       = 0;
+        int attackUnits = 0;
 
         // ── 1. Bouclier de pions ─────────────────────────────────────────────
-        // Seulement pertinent si le roi est sur les ailes (colonnes a-c ou f-h)
-        // et qu'il n'est pas au centre (où le bouclier serait illusoire).
         if (kingFile <= 2 || kingFile >= 5) {
             score += pawnShieldScore(kingSq, kingFile, ourPawns, white);
         }
 
-        // ── 2. Cases voisines attaquées ──────────────────────────────────────
+        // ── 2. Attaques ennemies sur la zone du roi ───────────────────────────
         long kingZone = AttackTables.KING_ATTACKS[kingSq] | kingBB;
-        Color them    = us.opposite();
-        long enemyPieces = state.getOccupancy(them);
+        Color them = us.opposite();
 
-        // Cavaliers ennemis attaquant la zone du roi
-        long enemyKnights = state.getBitboard(them, Piece.KNIGHT);
-        long temp = enemyKnights;
+        long temp = state.getBitboard(them, Piece.KNIGHT);
         while (temp != 0) {
             int sq = Long.numberOfTrailingZeros(temp);
             temp &= temp - 1;
-            if ((AttackTables.KNIGHT_ATTACKS[sq] & kingZone) != 0) {
-                score += KING_ATTACK_UNIT;
-            }
+            if ((AttackTables.KNIGHT_ATTACKS[sq] & kingZone) != 0)
+                attackUnits += KNIGHT_ATTACK_WEIGHT;
         }
 
-        // Fous + Dames ennemis attaquant la zone du roi (diagonales)
-        long enemyBishopQueens = state.getBitboard(them, Piece.BISHOP)
-                               | state.getBitboard(them, Piece.QUEEN);
-        temp = enemyBishopQueens;
+        temp = state.getBitboard(them, Piece.BISHOP);
         while (temp != 0) {
             int sq = Long.numberOfTrailingZeros(temp);
             temp &= temp - 1;
-            long attacks = bishopAttacks(sq, occ);
-            if ((attacks & kingZone) != 0) {
-                score += KING_ATTACK_UNIT * 2; // fou/dame = plus dangereux
-            }
+            if ((MagicBitboards.getBishopAttacks(sq, occ) & kingZone) != 0)
+                attackUnits += BISHOP_ATTACK_WEIGHT;
         }
 
-        // Tours + Dames ennemies attaquant la zone du roi (lignes)
-        long enemyRookQueens = state.getBitboard(them, Piece.ROOK)
-                             | state.getBitboard(them, Piece.QUEEN);
-        temp = enemyRookQueens;
+        temp = state.getBitboard(them, Piece.ROOK);
         while (temp != 0) {
             int sq = Long.numberOfTrailingZeros(temp);
             temp &= temp - 1;
-            long attacks = rookAttacks(sq, occ);
-            if ((attacks & kingZone) != 0) {
-                score += KING_ATTACK_UNIT * 2;
-            }
+            if ((MagicBitboards.getRookAttacks(sq, occ) & kingZone) != 0)
+                attackUnits += ROOK_ATTACK_WEIGHT;
         }
 
-        // ── 3. Colonnes ouvertes / semi-ouvertes près du roi ─────────────────
-        // On inspecte les 3 colonnes autour du roi (ou moins sur les bords)
+        temp = state.getBitboard(them, Piece.QUEEN);
+        while (temp != 0) {
+            int sq = Long.numberOfTrailingZeros(temp);
+            temp &= temp - 1;
+            if ((MagicBitboards.getQueenAttacks(sq, occ) & kingZone) != 0)
+                attackUnits += QUEEN_ATTACK_WEIGHT;
+        }
+
+        int tableIdx = Math.min(attackUnits, KING_DANGER_TABLE.length - 1);
+        score -= KING_DANGER_TABLE[tableIdx];
+
+        // ── 3. Colonnes ouvertes proches du roi ───────────────────────────────
+        long theirPawns = state.getBitboard(them, Piece.PAWN);
         int fileMin = Math.max(0, kingFile - 1);
         int fileMax = Math.min(7, kingFile + 1);
         for (int f = fileMin; f <= fileMax; f++) {
-            long col = Bitboard.FILE_A << f;
-            boolean openForUs    = (ourPawns  & col) == 0;
-            boolean openForThem  = (state.getBitboard(them, Piece.PAWN) & col) == 0;
-            if (openForUs && openForThem) {
-                // Colonne complètement ouverte : très dangereux
-                score += OPEN_FILE_NEAR_KING * 2;
-            } else if (openForUs) {
-                // Semi-ouverte pour nous : pas de pions blancs → tour/dame peut s'infiltrer
+            long col    = Bitboard.FILE_A << f;
+            boolean noOur   = (ourPawns   & col) == 0;
+            boolean noTheir = (theirPawns & col) == 0;
+            if (noOur && noTheir) {
+                score += OPEN_FILE_NEAR_KING_FULL;
+            } else if (noOur) {
                 score += OPEN_FILE_NEAR_KING;
             }
         }
@@ -150,26 +124,17 @@ public final class KingSafety {
         return score;
     }
 
-    // ── Bouclier de pions ─────────────────────────────────────────────────────
-
-    /**
-     * Score du bouclier de pions pour un roi à {@code kingSq}.
-     * On regarde les 3 colonnes devant lui (±1 colonne) sur 2 rangs.
-     */
     private static int pawnShieldScore(int kingSq, int kingFile,
                                        long ourPawns, boolean white) {
-        int score = 0;
+        int score   = 0;
         int fileMin = Math.max(0, kingFile - 1);
         int fileMax = Math.min(7, kingFile + 1);
 
         for (int f = fileMin; f <= fileMax; f++) {
             long col = Bitboard.FILE_A << f;
-
-            // Rang immédiat devant le roi (rang+1 pour blancs, rang-1 pour noirs)
             long closeRank = white
                 ? (Bitboard.RANK_1 << ((kingSq / 8 + 1) * 8))
                 : (Bitboard.RANK_1 << ((kingSq / 8 - 1) * 8));
-            // Rang 2 devant
             long farRank = white
                 ? (Bitboard.RANK_1 << ((kingSq / 8 + 2) * 8))
                 : (Bitboard.RANK_1 << ((kingSq / 8 - 2) * 8));
@@ -179,44 +144,9 @@ public final class KingSafety {
             } else if ((ourPawns & col & farRank) != 0) {
                 score += PAWN_SHIELD_FAR;
             } else {
-                // Pion bouclier absent
                 score += PAWN_SHIELD_MISS;
             }
         }
         return score;
-    }
-
-    // ── Attaques pseudo-légales (bitboard) ────────────────────────────────────
-
-    /** Attaques de fou/dame en diagonale depuis {@code sq} avec occupation {@code occ}. */
-    private static long bishopAttacks(int sq, long occ) {
-        long attacks = 0L;
-        attacks |= raySlide(sq, occ,  9, Bitboard.NOT_FILE_A);
-        attacks |= raySlide(sq, occ,  7, Bitboard.NOT_FILE_H);
-        attacks |= raySlide(sq, occ, -7, Bitboard.NOT_FILE_A);
-        attacks |= raySlide(sq, occ, -9, Bitboard.NOT_FILE_H);
-        return attacks;
-    }
-
-    /** Attaques de tour/dame en ligne depuis {@code sq} avec occupation {@code occ}. */
-    private static long rookAttacks(int sq, long occ) {
-        long attacks = 0L;
-        attacks |= raySlide(sq, occ,  8, -1L);
-        attacks |= raySlide(sq, occ, -8, -1L);
-        attacks |= raySlide(sq, occ,  1, Bitboard.NOT_FILE_A);
-        attacks |= raySlide(sq, occ, -1, Bitboard.NOT_FILE_H);
-        return attacks;
-    }
-
-    private static long raySlide(int sq, long occ, int shift, long noWrap) {
-        long attacks = 0L;
-        long cur = 1L << sq;
-        for (int i = 0; i < 7; i++) {
-            cur = shift > 0 ? (cur << shift) & noWrap : (cur >>> (-shift)) & noWrap;
-            if (cur == 0) break;
-            attacks |= cur;
-            if ((cur & occ) != 0) break;
-        }
-        return attacks;
     }
 }

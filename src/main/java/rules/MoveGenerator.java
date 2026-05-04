@@ -12,14 +12,13 @@ import java.util.List;
  * Génère tous les coups légaux depuis un état donné.
  * Utilise des bitboards pour la génération pseudo-légale,
  * puis filtre les coups laissant le roi en échec.
+ *
+ * Les attaques des pièces glissantes utilisent {@link MagicBitboards} — O(1).
  */
 public class MoveGenerator {
 
     public MoveGenerator() {}
 
-    /**
-     * Retourne la liste de tous les coups légaux pour le camp qui doit jouer.
-     */
     public static List<Move> generateLegalMoves(BitboardState state) {
         List<Move> pseudoLegal = generatePseudoLegalMoves(state);
         List<Move> legal = new ArrayList<>();
@@ -32,18 +31,12 @@ public class MoveGenerator {
         return legal;
     }
 
-    /**
-     * Retourne tous les coups légaux depuis une case spécifique.
-     */
     public static List<Move> generateLegalMovesFrom(BitboardState state, Square from) {
         return generateLegalMoves(state).stream()
             .filter(m -> m.from() == from)
             .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
     }
 
-    /**
-     * Vérifie si le camp donné est en échec dans l'état fourni.
-     */
     public static boolean isInCheck(BitboardState state, Color color) {
         long kingBB = state.getBitboard(color, Piece.KING);
         if (kingBB == 0) return false;
@@ -51,20 +44,10 @@ public class MoveGenerator {
         return isSquareAttackedBy(state, kingSq, color.opposite());
     }
 
-    /**
-     * Vérifie si une case est attaquée par le camp indiqué.
-     */
     public static boolean isSquareAttackedBy(BitboardState state, int squareIndex, Color attacker) {
         long occ = state.getAllOccupancy();
-        long attackerPieces;
 
         // Pions
-        attackerPieces = state.getBitboard(attacker, Piece.PAWN);
-        long pawnAttacks = attacker == Color.WHITE
-            ? AttackTables.WHITE_PAWN_ATTACKS[squareIndex]
-            : AttackTables.BLACK_PAWN_ATTACKS[squareIndex];
-        // On cherche si un pion adverse attaque cette case : on inverse
-        // (les attaques depuis squareIndex vers les pions adverses)
         if (attacker == Color.WHITE) {
             if ((AttackTables.BLACK_PAWN_ATTACKS[squareIndex] & state.getBitboard(attacker, Piece.PAWN)) != 0) return true;
         } else {
@@ -79,14 +62,14 @@ public class MoveGenerator {
         if ((AttackTables.KING_ATTACKS[squareIndex] & state.getBitboard(attacker, Piece.KING)) != 0)
             return true;
 
-        // Fous + Dames (diagonales)
+        // Fous + Dames (diagonales) — Magic Bitboards O(1)
         long bishopQueens = state.getBitboard(attacker, Piece.BISHOP) | state.getBitboard(attacker, Piece.QUEEN);
-        if (bishopQueens != 0 && (getBishopAttacks(squareIndex, occ, 0L) & bishopQueens) != 0)
+        if (bishopQueens != 0 && (MagicBitboards.getBishopAttacks(squareIndex, occ) & bishopQueens) != 0)
             return true;
 
-        // Tours + Dames (lignes)
+        // Tours + Dames (lignes) — Magic Bitboards O(1)
         long rookQueens = state.getBitboard(attacker, Piece.ROOK) | state.getBitboard(attacker, Piece.QUEEN);
-        if ((getRookAttacks(squareIndex, occ, 0L) & rookQueens) != 0)
+        if ((MagicBitboards.getRookAttacks(squareIndex, occ) & rookQueens) != 0)
             return true;
 
         return false;
@@ -94,12 +77,6 @@ public class MoveGenerator {
 
     // ── Génération pseudo-légale ──────────────────────────────────────────────
 
-    /**
-     * Génère uniquement les captures (prises + prises en passant) de façon pseudo-légale,
-     * sans vérifier si le roi est en échec après.
-     * Utilisé par la quiescence search pour éviter d'appeler generateLegalMoves complet.
-     * Le filtrage de légalité (roi en échec) est fait dans la quiescence elle-même.
-     */
     public static List<Move> generatePseudoLegalCaptures(BitboardState state) {
         Color color = state.getSideToMove();
         long enemies = state.getOccupancy(color.opposite());
@@ -107,7 +84,6 @@ public class MoveGenerator {
         long allies = state.getOccupancy(color);
         List<Move> captures = new ArrayList<>(16);
 
-        // Captures de pions (y compris promotions par capture)
         long pawns = state.getBitboard(color, Piece.PAWN);
         boolean white = color == Color.WHITE;
         long promoRank = white ? Bitboard.RANK_8 : Bitboard.RANK_1;
@@ -128,14 +104,12 @@ public class MoveGenerator {
                     captures.add(Move.of(Square.fromIndex(from), Square.fromIndex(to)));
                 }
             }
-            // En passant
             Square ep = state.getEnPassantTarget();
             if (ep != null && (attacks & ep.mask) != 0) {
                 captures.add(Move.enPassant(Square.fromIndex(from), ep));
             }
         }
 
-        // Captures de cavaliers
         long knights = state.getBitboard(color, Piece.KNIGHT);
         while (knights != 0) {
             int from = Bitboard.lsb(knights);
@@ -144,34 +118,30 @@ public class MoveGenerator {
             addMovesFromTargets(from, targets, captures);
         }
 
-        // Captures de fous
         long bishops = state.getBitboard(color, Piece.BISHOP);
         while (bishops != 0) {
             int from = Bitboard.lsb(bishops);
             bishops = Bitboard.popLsb(bishops);
-            long targets = getBishopAttacks(from, occ, allies) & enemies;
+            long targets = MagicBitboards.getBishopAttacks(from, occ) & enemies & ~allies;
             addMovesFromTargets(from, targets, captures);
         }
 
-        // Captures de tours
         long rooks = state.getBitboard(color, Piece.ROOK);
         while (rooks != 0) {
             int from = Bitboard.lsb(rooks);
             rooks = Bitboard.popLsb(rooks);
-            long targets = getRookAttacks(from, occ, allies) & enemies;
+            long targets = MagicBitboards.getRookAttacks(from, occ) & enemies & ~allies;
             addMovesFromTargets(from, targets, captures);
         }
 
-        // Captures de dames
         long queens = state.getBitboard(color, Piece.QUEEN);
         while (queens != 0) {
             int from = Bitboard.lsb(queens);
             queens = Bitboard.popLsb(queens);
-            long targets = (getBishopAttacks(from, occ, allies) | getRookAttacks(from, occ, allies)) & enemies;
+            long targets = MagicBitboards.getQueenAttacks(from, occ) & enemies & ~allies;
             addMovesFromTargets(from, targets, captures);
         }
 
-        // Captures du roi
         long king = state.getBitboard(color, Piece.KING);
         if (king != 0) {
             int from = Bitboard.lsb(king);
@@ -213,7 +183,6 @@ public class MoveGenerator {
             pawns = Bitboard.popLsb(pawns);
             long fromMask = 1L << from;
 
-            // Poussée simple
             long push1 = white ? Bitboard.shiftNorth(fromMask) : Bitboard.shiftSouth(fromMask);
             push1 &= ~occ;
 
@@ -223,7 +192,6 @@ public class MoveGenerator {
                     addPromotions(from, to, moves);
                 } else {
                     moves.add(Move.of(Square.fromIndex(from), Square.fromIndex(to)));
-                    // Poussée double depuis la rangée de départ
                     long push2 = white ? Bitboard.shiftNorth(push1) : Bitboard.shiftSouth(push1);
                     push2 &= ~occ & (white ? Bitboard.RANK_4 : Bitboard.RANK_5);
                     if ((fromMask & startRank) != 0 && push2 != 0) {
@@ -232,7 +200,6 @@ public class MoveGenerator {
                 }
             }
 
-            // Prises
             long attacks = white
                 ? AttackTables.WHITE_PAWN_ATTACKS[from]
                 : AttackTables.BLACK_PAWN_ATTACKS[from];
@@ -248,7 +215,6 @@ public class MoveGenerator {
                 }
             }
 
-            // En passant
             Square ep = state.getEnPassantTarget();
             if (ep != null && (attacks & ep.mask) != 0) {
                 moves.add(Move.enPassant(Square.fromIndex(from), ep));
@@ -264,7 +230,7 @@ public class MoveGenerator {
         moves.add(Move.promotion(f, t, Piece.KNIGHT));
     }
 
-    // ── Cavaliers ────────────────────────────────────────────────────────────
+    // ── Pièces — toutes via Magic Bitboards ──────────────────────────────────
 
     private static void generateKnightMoves(BitboardState state, Color color, List<Move> moves) {
         long knights = state.getBitboard(color, Piece.KNIGHT);
@@ -277,8 +243,6 @@ public class MoveGenerator {
         }
     }
 
-    // ── Fous ─────────────────────────────────────────────────────────────────
-
     private static void generateBishopMoves(BitboardState state, Color color, List<Move> moves) {
         long bishops = state.getBitboard(color, Piece.BISHOP);
         long allies  = state.getOccupancy(color);
@@ -286,12 +250,10 @@ public class MoveGenerator {
         while (bishops != 0) {
             int from = Bitboard.lsb(bishops);
             bishops = Bitboard.popLsb(bishops);
-            long targets = getBishopAttacks(from, occ, allies);
+            long targets = MagicBitboards.getBishopAttacks(from, occ) & ~allies;
             addMovesFromTargets(from, targets, moves);
         }
     }
-
-    // ── Tours ─────────────────────────────────────────────────────────────────
 
     private static void generateRookMoves(BitboardState state, Color color, List<Move> moves) {
         long rooks  = state.getBitboard(color, Piece.ROOK);
@@ -300,12 +262,10 @@ public class MoveGenerator {
         while (rooks != 0) {
             int from = Bitboard.lsb(rooks);
             rooks = Bitboard.popLsb(rooks);
-            long targets = getRookAttacks(from, occ, allies);
+            long targets = MagicBitboards.getRookAttacks(from, occ) & ~allies;
             addMovesFromTargets(from, targets, moves);
         }
     }
-
-    // ── Dames ─────────────────────────────────────────────────────────────────
 
     private static void generateQueenMoves(BitboardState state, Color color, List<Move> moves) {
         long queens = state.getBitboard(color, Piece.QUEEN);
@@ -314,12 +274,10 @@ public class MoveGenerator {
         while (queens != 0) {
             int from = Bitboard.lsb(queens);
             queens = Bitboard.popLsb(queens);
-            long targets = getBishopAttacks(from, occ, allies) | getRookAttacks(from, occ, allies);
+            long targets = MagicBitboards.getQueenAttacks(from, occ) & ~allies;
             addMovesFromTargets(from, targets, moves);
         }
     }
-
-    // ── Roi ───────────────────────────────────────────────────────────────────
 
     private static void generateKingMoves(BitboardState state, Color color, List<Move> moves) {
         long king   = state.getBitboard(color, Piece.KING);
@@ -371,44 +329,15 @@ public class MoveGenerator {
         return false;
     }
 
-    // ── Calcul d'attaques des pièces glissantes (par rayons) ──────────────────
+    // ── Compatibilité — méthodes conservées pour AttackTables.rayAttacks ──────
+    // (utilisées par d'autres modules éventuels)
 
     static long getBishopAttacks(int sq, long occ, long allies) {
-        long attacks = 0L;
-        attacks |= raySlide(sq, occ,  9, Bitboard.NOT_FILE_A);
-        attacks |= raySlide(sq, occ,  7, Bitboard.NOT_FILE_H);
-        attacks |= raySlide(sq, occ, -7, Bitboard.NOT_FILE_A);
-        attacks |= raySlide(sq, occ, -9, Bitboard.NOT_FILE_H);
-        return attacks & ~allies;
+        return MagicBitboards.getBishopAttacks(sq, occ) & ~allies;
     }
 
     static long getRookAttacks(int sq, long occ, long allies) {
-        long attacks = 0L;
-        attacks |= raySlide(sq, occ,  8, 0xFFFFFFFFFFFFFFFFL);
-        attacks |= raySlide(sq, occ, -8, 0xFFFFFFFFFFFFFFFFL);
-        attacks |= raySlide(sq, occ,  1, Bitboard.NOT_FILE_A);
-        attacks |= raySlide(sq, occ, -1, Bitboard.NOT_FILE_H);
-        return attacks & ~allies;
-    }
-
-    /**
-     * Calcule les cases attaquées par un glissement dans un rayon.
-     * @param sq       case de départ
-     * @param occ      occupation complète
-     * @param shift    décalage (positif = gauche, négatif = droite)
-     * @param noWrap   masque pour éviter le wrap-around de colonne
-     */
-    private static long raySlide(int sq, long occ, int shift, long noWrap) {
-        long attacks = 0L;
-        long current = 1L << sq;
-        for (int i = 0; i < 7; i++) {
-            if (shift > 0) current = (current << shift) & noWrap;
-            else           current = (current >>> (-shift)) & noWrap;
-            if (current == 0) break;
-            attacks |= current;
-            if ((current & occ) != 0) break;
-        }
-        return attacks;
+        return MagicBitboards.getRookAttacks(sq, occ) & ~allies;
     }
 
     // ── Utilitaire ────────────────────────────────────────────────────────────
@@ -421,12 +350,8 @@ public class MoveGenerator {
         }
     }
 
-    // ── Application d'un coup (pour la vérification de légalité) ─────────────
+    // ── Application d'un coup ─────────────────────────────────────────────────
 
-    /**
-     * Applique un coup sur l'état et retourne le nouvel état.
-     * Utilisé pour vérifier la légalité (le roi ne doit pas être en échec après).
-     */
     public static BitboardState applyMove(BitboardState state, Move move) {
         Color color = state.getSideToMove();
         Color enemy = color.opposite();
@@ -440,18 +365,15 @@ public class MoveGenerator {
         int colorIdx = color.ordinal();
         int enemyIdx = enemy.ordinal();
 
-        // Copier les bitboards en une seule fois
         long[][] bbs = new long[2][6];
         System.arraycopy(state.getBitboardsRow(0), 0, bbs[0], 0, 6);
         System.arraycopy(state.getBitboardsRow(1), 0, bbs[1], 0, 6);
 
         long hash = state.getZobristHash();
 
-        // Retirer la pièce de la case de départ
         bbs[colorIdx][piece.index] &= ~from.mask;
         hash ^= ZobristHasher.PIECE_HASH[colorIdx][piece.index][from.index];
 
-        // Gérer la capture
         if (move.isEnPassant()) {
             Square captured = color == Color.WHITE
                 ? Square.fromIndex(to.index - 8)
@@ -459,7 +381,6 @@ public class MoveGenerator {
             bbs[enemyIdx][Piece.PAWN.index] &= ~captured.mask;
             hash ^= ZobristHasher.PIECE_HASH[enemyIdx][Piece.PAWN.index][captured.index];
         } else {
-            // Retirer une éventuelle pièce ennemie sur la case d'arrivée
             for (int p = 0; p < 6; p++) {
                 if ((bbs[enemyIdx][p] & to.mask) != 0) {
                     bbs[enemyIdx][p] &= ~to.mask;
@@ -469,12 +390,10 @@ public class MoveGenerator {
             }
         }
 
-        // Poser la pièce (ou la pièce promue) sur la case d'arrivée
         Piece landing = move.isPromotion() ? move.promotionPiece() : piece;
         bbs[colorIdx][landing.index] |= to.mask;
         hash ^= ZobristHasher.PIECE_HASH[colorIdx][landing.index][to.index];
 
-        // Roque : déplacer la tour
         if (move.isCastling()) {
             Square rookFrom, rookTo;
             if      (to == Square.G1) { rookFrom = Square.H1; rookTo = Square.F1; }
@@ -487,19 +406,16 @@ public class MoveGenerator {
             hash ^= ZobristHasher.PIECE_HASH[colorIdx][Piece.ROOK.index][rookTo.index];
         }
 
-        // En passant
         Square newEp = null;
         if (piece == Piece.PAWN && Math.abs(to.rank - from.rank) == 2) {
             int epRank = (from.rank + to.rank) / 2;
             newEp = Square.fromIndex(from.file + epRank * 8);
         }
-        // Mise à jour hash en passant
         if (state.getEnPassantTarget() != null)
             hash ^= ZobristHasher.EN_PASSANT_HASH[state.getEnPassantTarget().file];
         if (newEp != null)
             hash ^= ZobristHasher.EN_PASSANT_HASH[newEp.file];
 
-        // Droits de roque
         CastlingRights cr = state.getCastlingRights();
         CastlingRights newCr = cr;
         if (piece == Piece.KING) {
@@ -516,12 +432,10 @@ public class MoveGenerator {
             hash ^= ZobristHasher.CASTLING_HASH[newCr.getRights()];
         }
 
-        // Compteurs
         boolean isCapture = move.isEnPassant() || (state.getPieceAt(to) != null);
         int newHalfClock = (piece == Piece.PAWN || isCapture) ? 0 : state.getHalfMoveClock() + 1;
         int newFullMove  = state.getFullMoveNumber() + (color == Color.BLACK ? 1 : 0);
 
-        // Changement de camp
         hash ^= ZobristHasher.SIDE_TO_MOVE_HASH;
 
         return BitboardState.ofApplied(bbs, enemy, newCr, newEp, newHalfClock, newFullMove, hash);
