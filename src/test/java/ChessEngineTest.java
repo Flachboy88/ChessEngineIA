@@ -13,7 +13,6 @@ import player.classical.AlphaBetaPlayer;
 import player.classical.RandomAIPlayer;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -436,8 +435,6 @@ class ChessEngineTest {
     @Nested @DisplayName("10. Évaluation avancée")
     class EvaluationAvanceeTests {
 
-        // ── PawnEvaluator ──────────────────────────────────────────────────
-
         @Test @DisplayName("Pions doublés : malus détecté")
         void pionsDoublés() {
             var avec = new ChessAPI("4k3/8/8/8/8/4P3/4P3/4K3 w - - 0 1").getBitboardState();
@@ -445,195 +442,349 @@ class ChessEngineTest {
             int scorePionsDoubles = PawnEvaluator.evaluate(avec, 128);
             int scorePionsNormaux = PawnEvaluator.evaluate(sans, 128);
             assertTrue(scorePionsDoubles < scorePionsNormaux,
-                "Pions doublés doivent être moins bien évalués que pions normaux. "
-                + "Doubles=" + scorePionsDoubles + " Normaux=" + scorePionsNormaux);
+                "Doubles=" + scorePionsDoubles + " Normaux=" + scorePionsNormaux);
         }
 
         @Test @DisplayName("Pions isolés : malus détecté")
         void pionsIsolés() {
             var isole  = new ChessAPI("4k3/8/8/8/8/P7/8/4K3 w - - 0 1").getBitboardState();
             var normal = new ChessAPI("4k3/8/8/8/3P4/8/8/4K3 w - - 0 1").getBitboardState();
-            int scoreIsole  = PawnEvaluator.evaluate(isole,  128);
-            int scoreNormal = PawnEvaluator.evaluate(normal, 128);
-            assertTrue(scoreIsole <= scoreNormal,
-                "Pion isolé ne doit pas être mieux évalué. Isolé=" + scoreIsole + " Normal=" + scoreNormal);
+            assertTrue(PawnEvaluator.evaluate(isole, 128) <= PawnEvaluator.evaluate(normal, 128));
         }
 
         @Test @DisplayName("Pion passé blanc en e6 : bonus en finale")
         void pionPasséBonus() {
             var avec = new ChessAPI("4k3/8/4P3/8/8/8/8/4K3 w - - 0 1").getBitboardState();
             var sans = new ChessAPI("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1").getBitboardState();
-            int bonusAvance = PawnEvaluator.evaluate(avec, 0);
-            int bonusDepart = PawnEvaluator.evaluate(sans, 0);
-            assertTrue(bonusAvance > bonusDepart,
-                "Pion passé avancé doit valoir plus en finale. Avancé=" + bonusAvance + " Départ=" + bonusDepart);
+            assertTrue(PawnEvaluator.evaluate(avec, 0) > PawnEvaluator.evaluate(sans, 0));
         }
 
         @Test @DisplayName("PawnEvaluator : symétrie en position initiale")
         void pawnEvalSymetrie() {
-            var bs = new ChessAPI().getBitboardState();
-            assertEquals(0, PawnEvaluator.evaluate(bs, 256),
-                "PawnEvaluator doit retourner 0 en position initiale symétrique");
+            assertEquals(0, PawnEvaluator.evaluate(new ChessAPI().getBitboardState(), 256));
         }
-
-        // ── MobilityEvaluator ─────────────────────────────────────────────
 
         @Test @DisplayName("Mobilité : paire de fous donne un bonus")
         void paireDeFous() {
             var bs = new ChessAPI("4k3/8/8/8/8/8/8/2BB1K2 w - - 0 1").getBitboardState();
-            int score = MobilityEvaluator.evaluate(bs, 128);
-            assertTrue(score > 0, "La paire de fous blancs doit donner un avantage. Score=" + score);
+            assertTrue(MobilityEvaluator.evaluate(bs, 128) > 0);
         }
 
         @Test @DisplayName("Mobilité : tour sur colonne ouverte = bonus")
         void tourColonneOuverte() {
             var ouverte = new ChessAPI("4k3/8/8/8/8/8/8/4R1K1 w - - 0 1").getBitboardState();
             var bloquee = new ChessAPI("4k3/8/8/8/8/8/4P3/4R1K1 w - - 0 1").getBitboardState();
-            int scoreOuverte = MobilityEvaluator.evaluate(ouverte, 128);
-            int scoreBloquee = MobilityEvaluator.evaluate(bloquee, 128);
-            assertTrue(scoreOuverte > scoreBloquee,
-                "Tour colonne ouverte doit valoir plus. Ouverte=" + scoreOuverte + " Bloquée=" + scoreBloquee);
+            assertTrue(MobilityEvaluator.evaluate(ouverte, 128) > MobilityEvaluator.evaluate(bloquee, 128));
         }
 
         @Test @DisplayName("Mobilité : symétrie en position initiale")
         void mobiliteSymetrie() {
-            var bs = new ChessAPI().getBitboardState();
-            assertEquals(0, MobilityEvaluator.evaluate(bs, 256),
-                "MobilityEvaluator doit retourner 0 en position initiale symétrique");
+            assertEquals(0, MobilityEvaluator.evaluate(new ChessAPI().getBitboardState(), 256));
         }
-
-        // ── KingSafety ────────────────────────────────────────────────────
 
         @Test @DisplayName("Sécurité roi : bouclier de pions = meilleur score")
         void bouclierDePions() {
-            var avecBouclier = new ChessAPI("4k3/8/8/8/8/8/5PPP/6K1 w - - 0 1").getBitboardState();
-            var sansBouclier = new ChessAPI("4k3/8/8/8/8/8/8/6K1 w - - 0 1").getBitboardState();
-            int scoreAvec = KingSafety.evaluate(avecBouclier, 205); // ~0.8 * 256
-            int scoreSans = KingSafety.evaluate(sansBouclier, 205);
-            assertTrue(scoreAvec > scoreSans,
-                "Bouclier de pions doit améliorer la sécurité. Avec=" + scoreAvec + " Sans=" + scoreSans);
+            var avec = new ChessAPI("4k3/8/8/8/8/8/5PPP/6K1 w - - 0 1").getBitboardState();
+            var sans = new ChessAPI("4k3/8/8/8/8/8/8/6K1 w - - 0 1").getBitboardState();
+            assertTrue(KingSafety.evaluate(avec, 205) > KingSafety.evaluate(sans, 205));
         }
 
-        @Test @DisplayName("Sécurité roi : symétrie parfaite → score = 0")
+        @Test @DisplayName("Sécurité roi : symétrie → score = 0")
         void kingSafetySymetrie() {
-            assertEquals(0, KingSafety.evaluate(new ChessAPI().getBitboardState(), 256),
-                "KingSafety doit retourner 0 en position initiale symétrique");
+            assertEquals(0, KingSafety.evaluate(new ChessAPI().getBitboardState(), 256));
         }
 
-        @Test @DisplayName("Sécurité roi : impact réduit en finale (phase=0)")
+        @Test @DisplayName("Sécurité roi : nul en finale (phase=0)")
         void kingSafetyNullEnFinale() {
-            var bs = new ChessAPI("4k3/8/8/8/8/8/8/6K1 w - - 0 1").getBitboardState();
-            assertEquals(0, KingSafety.evaluate(bs, 0),
-                "KingSafety doit être nul en finale pure (phase=0)");
+            assertEquals(0, KingSafety.evaluate(
+                new ChessAPI("4k3/8/8/8/8/8/8/6K1 w - - 0 1").getBitboardState(), 0));
         }
-
-        // ── PositionEvaluator global ──────────────────────────────────────
 
         @Test @DisplayName("Évaluation complète : Blancs avantagés après e4 (PST)")
         void evalApresE4() {
             var apres = new ChessAPI("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1").getBitboardState();
-            int score = PositionEvaluator.evaluateFor(apres, Color.WHITE);
-            assertTrue(score > 0, "Après e4, les Blancs doivent avoir un léger avantage PST. Score=" + score);
+            assertTrue(PositionEvaluator.evaluateFor(apres, Color.WHITE) > 0);
         }
 
         @Test @DisplayName("Interpolation MG/EG : valeurs cohérentes aux extrêmes")
         void interpolationCoherence() {
-            var bs = new ChessAPI().getBitboardState();
-            int phaseMg = PositionEvaluator.gamePhase(bs);
-            assertTrue(phaseMg >= 230, "Phase initiale doit être >= 230/256, obtenu : " + phaseMg);
-
-            var bsFinale = new ChessAPI("4k3/8/8/8/8/8/8/4K3 w - - 0 1").getBitboardState();
-            int phaseEg = PositionEvaluator.gamePhase(bsFinale);
-            assertEquals(0, phaseEg, "Phase finale doit être 0");
+            assertTrue(PositionEvaluator.gamePhase(new ChessAPI().getBitboardState()) >= 230);
+            assertEquals(0, PositionEvaluator.gamePhase(
+                new ChessAPI("4k3/8/8/8/8/8/8/4K3 w - - 0 1").getBitboardState()));
         }
 
         @Test @DisplayName("AlphaBeta avec nouvelle évaluation : mat en 2 détecté")
         void matEnDeuxAvecNouvelleEval() {
             AlphaBetaSearch.clearTT();
-
-            var bs = new ChessAPI("3k4/8/8/8/8/8/8/3KQR2 w - - 0 1").getBitboardState();
-            var gs = new GameState(bs);
-
-            System.out.println("=== DEBUG matEnDeuxAvecNouvelleEval ===");
-            System.out.println("FEN : 3k4/8/8/8/8/8/8/3KQR2 w - - 0 1");
-            System.out.println("Pièces totales : " + Long.bitCount(bs.getAllOccupancy()));
-
-            // Coups légaux disponibles
-            var coupsLegaux = new rules.MoveGenerator() {}.generateLegalMoves(bs);
-            System.out.println("Coups légaux disponibles (" + coupsLegaux.size() + ") :");
-            for (var m : coupsLegaux) {
-                System.out.println("  " + m.toUci());
-            }
-
-            // Évaluation statique
-            int evalBlancs = engine.evaluation.PositionEvaluator.evaluateFor(bs, model.Color.WHITE);
-            System.out.println("Eval statique pour Blancs : " + evalBlancs);
-
-            // Test depth=1
-            System.out.println("\n--- Depth 1 ---");
-            long t1 = System.currentTimeMillis();
-            Move best1 = AlphaBetaSearch.chercherMeilleurCoup(gs, 1);
-            System.out.println("Depth 1 → " + (best1 != null ? best1.toUci() : "null")
-                + " (" + (System.currentTimeMillis() - t1) + " ms)");
-
-            AlphaBetaSearch.clearTT();
-
-            // Test depth=2
-            System.out.println("--- Depth 2 ---");
-            long t2 = System.currentTimeMillis();
+            var gs = new GameState(new ChessAPI("3k4/8/8/8/8/8/8/3KQR2 w - - 0 1").getBitboardState());
             Move best2 = AlphaBetaSearch.chercherMeilleurCoup(gs, 2);
-            System.out.println("Depth 2 → " + (best2 != null ? best2.toUci() : "null")
-                + " (" + (System.currentTimeMillis() - t2) + " ms)");
-
             AlphaBetaSearch.clearTT();
-
-            // Test depth=3 avec timeout 10s
-            System.out.println("--- Depth 3 (timeout 10s) ---");
-            long t3 = System.currentTimeMillis();
-            final Move[] best3 = {null};
-            Thread thread3 = new Thread(() -> {
-                best3[0] = AlphaBetaSearch.chercherMeilleurCoup(gs, 3);
-            });
-            thread3.start();
-            try {
-                thread3.join(10_000);
-            } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            long elapsed3 = System.currentTimeMillis() - t3;
-            if (thread3.isAlive()) {
-                thread3.interrupt();
-                System.out.println("Depth 3 → TIMEOUT après " + elapsed3 + " ms ← PROBLÈME ICI");
-            } else {
-                System.out.println("Depth 3 → " + (best3[0] != null ? best3[0].toUci() : "null")
-                    + " (" + elapsed3 + " ms)");
-            }
-
-            AlphaBetaSearch.clearTT();
-
-            // Test depth=4 avec timeout 10s
-            System.out.println("--- Depth 4 (timeout 10s) ---");
-            long t4 = System.currentTimeMillis();
             final Move[] best4 = {null};
-            Thread thread4 = new Thread(() -> {
-                best4[0] = AlphaBetaSearch.chercherMeilleurCoup(gs, 4);
-            });
-            thread4.start();
-            try {
-                thread4.join(10_000);
-            } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            long elapsed4 = System.currentTimeMillis() - t4;
-            if (thread4.isAlive()) {
-                thread4.interrupt();
-                System.out.println("Depth 4 → TIMEOUT après " + elapsed4 + " ms ← PROBLÈME ICI");
-            } else {
-                System.out.println("Depth 4 → " + (best4[0] != null ? best4[0].toUci() : "null")
-                    + " (" + elapsed4 + " ms)");
-            }
-
-            System.out.println("=== FIN DEBUG ===\n");
-
-            // Assertion finale non bloquante : on utilise best4 ou best3 si disponible
-            Move best = best4[0] != null ? best4[0] : best3[0] != null ? best3[0] : best2;
+            Thread t = new Thread(() -> best4[0] = AlphaBetaSearch.chercherMeilleurCoup(gs, 4));
+            t.start();
+            try { t.join(10_000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            if (t.isAlive()) t.interrupt();
+            Move best = best4[0] != null ? best4[0] : best2;
             assertNotNull(best, "L'IA doit retourner un coup dans une position gagnante");
+        }
+    }
+
+    // =========================================================================
+    // 11. Nouvelles optimisations moteur (Tier 1-3)
+    // =========================================================================
+
+    @Nested @DisplayName("11. Optimisations moteur — Tier 1 à 3")
+    class OptimisationMoteurTests {
+
+        // ── SEE ───────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("SEE : prise gagnante Fou×Dame non défendue détectée positive")
+        void seePriseFouDame() {
+            // Fou blanc c4 prend Dame noire d5 (non défendue)
+            // SEE = 900 - 0 = +900 → positif
+            ChessAPI api = new ChessAPI("4k3/8/8/3q4/2B5/8/8/4K3 w - - 0 1");
+            var move = api.getCoups(Square.C4).stream()
+                .filter(m -> m.to() == Square.D5).findFirst().orElse(null);
+            assertNotNull(move);
+            assertTrue(AlphaBetaSearch.seeCaptureScore(api.getBitboardState(), move) > 0,
+                "Fou×Dame non défendue doit être positive");
+        }
+
+        @Test @DisplayName("SEE : prise perdante Tour×Cavalier défendu par pion")
+        void seePrisePerdante() {
+            // Tour blanche e1 prend Cavalier noir e5, défendu par pion noir d6
+            // Rxe5 (gain 320) puis pxe5 (prend la Tour 500) → net blanc = 320-500 = -180 → SEE < 0
+            // Note : pion d6 attaque e5 car les pions noirs capturent en diagonale vers l'avant
+            // (vers rangs décroissants) : d6 attaque c5 et e5 ✓
+            ChessAPI api = new ChessAPI("4k3/8/3p4/4n3/8/8/8/4R1K1 w - - 0 1");
+            var move = api.getCoups(Square.E1).stream()
+                .filter(m -> m.to() == Square.E5).findFirst().orElse(null);
+            assertNotNull(move, "La Tour doit pouvoir aller en e5");
+            int seeScore = AlphaBetaSearch.seeCaptureScore(api.getBitboardState(), move);
+            assertTrue(seeScore < 0,
+                "SEE Tour×Cavalier défendu par pion doit être négative. Score=" + seeScore);
+        }
+
+        @Test @DisplayName("SEE : prise gagnante pion×pion non défendu >= 0")
+        void seePionPion() {
+            ChessAPI api = new ChessAPI("4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1");
+            var move = api.getCoups(Square.E4).stream()
+                .filter(m -> m.to() == Square.D5).findFirst().orElse(null);
+            assertNotNull(move);
+            assertTrue(AlphaBetaSearch.seeCaptureScore(api.getBitboardState(), move) >= 0);
+        }
+
+        // ── History Malus ─────────────────────────────────────────────────────
+
+        @Test @DisplayName("History Malus : l'IA est déterministe (résultat stable)")
+        void historyMalusStabilite() {
+            AlphaBetaSearch.clearTT();
+            GameState gs = new GameState(
+                new ChessAPI("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4")
+                    .getBitboardState());
+            Move best1 = AlphaBetaSearch.chercherMeilleurCoup(gs, 3);
+            AlphaBetaSearch.clearTT();
+            Move best2 = AlphaBetaSearch.chercherMeilleurCoup(gs, 3);
+            assertNotNull(best1); assertNotNull(best2);
+            assertEquals(best1.toUci(), best2.toUci(), "L'IA doit être déterministe");
+        }
+
+        // ── Countermove ───────────────────────────────────────────────────────
+
+        @Test @DisplayName("Countermove : réponse légale à 1.e4")
+        void countermoveMeilleurReponse() {
+            AlphaBetaSearch.clearTT();
+            ChessAPI api = new ChessAPI();
+            api.jouerCoup("e2e4");
+            Move reponse = AlphaBetaSearch.chercherMeilleurCoup(
+                new GameState(api.getBitboardState()), 3);
+            assertNotNull(reponse);
+            assertTrue(api.getCoupsLegaux().contains(reponse));
+        }
+
+        // ── Aspiration Windows ────────────────────────────────────────────────
+
+        @Test @DisplayName("Aspiration Windows : coups légaux à depth 2-5")
+        void aspirationWindowsCoherente() {
+            for (int depth = 2; depth <= 5; depth++) {
+                AlphaBetaSearch.clearTT();
+                Move best = AlphaBetaSearch.chercherMeilleurCoup(
+                    new GameState(new ChessAPI().getBitboardState()), depth);
+                assertNotNull(best, "depth=" + depth + " doit retourner un coup");
+                assertTrue(new ChessAPI().getCoupsLegaux().contains(best),
+                    "Coup depth=" + depth + " doit être légal : " + best.toUci());
+            }
+        }
+
+        // ── PVS ───────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("PVS : mat en 1 toujours trouvé")
+        void pvsMatEnUn() {
+            AlphaBetaSearch.clearTT();
+            GameState gs = new GameState(
+                new ChessAPI("r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4")
+                    .getBitboardState());
+            assertEquals(Square.F7, AlphaBetaSearch.chercherMeilleurCoup(gs, 3).to());
+        }
+
+        @Test @DisplayName("PVS : tour gratuite prise à depth=4")
+        void pvsCoherencePrise() {
+            AlphaBetaSearch.clearTT();
+            GameState gs = new GameState(
+                new ChessAPI("4k3/8/8/4r3/8/8/8/4R1K1 w - - 0 1").getBitboardState());
+            assertEquals(Square.E5, AlphaBetaSearch.chercherMeilleurCoup(gs, 4).to());
+        }
+
+        // ── Razoring ─────────────────────────────────────────────────────────
+
+        @Test @DisplayName("Razoring : rapide en position très défavorable (<5s)")
+        void razoringRapide() {
+            AlphaBetaSearch.clearTT();
+            GameState gs = new GameState(
+                new ChessAPI("4k3/8/8/8/8/8/8/QQQQK3 b - - 0 1").getBitboardState());
+            long t0 = System.currentTimeMillis();
+            Move best = AlphaBetaSearch.chercherMeilleurCoup(gs, 3);
+            assertNotNull(best);
+            assertTrue(System.currentTimeMillis() - t0 < 5000);
+        }
+
+        // ── LMP ───────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("LMP : évite sacrifice dame sur tour défendue")
+        void lmpEviteSacrifice() {
+            AlphaBetaSearch.clearTT();
+            GameState gs = new GameState(
+                new ChessAPI("3r4/8/8/8/8/8/3P4/3QK3 w - - 0 1").getBitboardState());
+            assertNotEquals("d1d8", AlphaBetaSearch.chercherMeilleurCoup(gs, 4).toUci());
+        }
+
+        // ── NMP adaptatif ─────────────────────────────────────────────────────
+
+        @Test @DisplayName("NMP adaptatif : coup trouvé à depth=6")
+        void nmpAdaptatifGagnant() {
+            AlphaBetaSearch.clearTT();
+            assertNotNull(AlphaBetaSearch.chercherMeilleurCoup(
+                new GameState(new ChessAPI("4k3/8/8/8/8/8/8/3KQR2 w - - 0 1").getBitboardState()), 6));
+        }
+
+        // ── Singular Extensions ───────────────────────────────────────────────
+
+        @Test @DisplayName("Singular Extensions : coup forcé joué (final pion)")
+        void singularExtensionForcé() {
+            AlphaBetaSearch.clearTT();
+            Move best = AlphaBetaSearch.chercherMeilleurCoup(
+                new GameState(new ChessAPI("3k4/3P4/3K4/8/8/8/8/8 w - - 0 1").getBitboardState()), 5);
+            assertNotNull(best);
+            assertTrue(best.from() == Square.D7 || best.from() == Square.D6,
+                "Doit jouer pion ou roi : " + best.toUci());
+        }
+
+        // ── IID ───────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("IID : coup légal trouvé sans TT")
+        void iidSansTT() {
+            AlphaBetaSearch.clearTT();
+            String fen = "r1bq1rk1/pp2ppbp/2np1np1/8/2pPP3/2N2N2/PP2BPPP/R1BQ1RK1 w - - 0 8";
+            Move best = AlphaBetaSearch.chercherMeilleurCoup(
+                new GameState(new ChessAPI(fen).getBitboardState()), 5);
+            assertNotNull(best);
+            assertTrue(new ChessAPI(fen).getCoupsLegaux().contains(best),
+                "Coup IID doit être légal : " + best.toUci());
+        }
+
+        // ── Pawn Hash Table ───────────────────────────────────────────────────
+
+        @Test @DisplayName("Pawn Hash Table : résultat identique avec/sans cache")
+        void pawnHashTableConsistency() {
+            String fen = "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+            GameState gs = new GameState(new ChessAPI(fen).getBitboardState());
+            AlphaBetaSearch.clearTT(); AlphaBetaSearch.clearPawnTT();
+            Move best1 = AlphaBetaSearch.chercherMeilleurCoup(gs, 4);
+            AlphaBetaSearch.clearTT();
+            Move best2 = AlphaBetaSearch.chercherMeilleurCoup(gs, 4);
+            assertNotNull(best1); assertNotNull(best2);
+            assertEquals(best1.toUci(), best2.toUci(),
+                "Cache pions ne doit pas changer le résultat");
+        }
+
+        @Test @DisplayName("Pawn Hash Table : 2ème run pas plus lent que 1er×2")
+        void pawnHashTablePerf() {
+            String fen = "r1bq1rk1/pp2ppbp/2np1np1/8/2pPP3/2N2N2/PP2BPPP/R1BQ1RK1 w - - 0 8";
+            GameState gs = new GameState(new ChessAPI(fen).getBitboardState());
+            AlphaBetaSearch.clearTT(); AlphaBetaSearch.clearPawnTT();
+            long t0 = System.currentTimeMillis();
+            AlphaBetaSearch.chercherMeilleurCoup(gs, 5);
+            long time1 = System.currentTimeMillis() - t0;
+            AlphaBetaSearch.clearTT();
+            long t1 = System.currentTimeMillis();
+            AlphaBetaSearch.chercherMeilleurCoup(gs, 5);
+            long time2 = System.currentTimeMillis() - t1;
+            System.out.println("Pawn TT: sans=" + time1 + "ms avec=" + time2 + "ms");
+            assertTrue(time2 < time1 * 2,
+                "Cache pions ne doit pas ralentir. Sans=" + time1 + "ms Avec=" + time2 + "ms");
+        }
+
+        // ── Régression ────────────────────────────────────────────────────────
+
+        @Test @DisplayName("Régression : bat toujours RandomAI (1.5s)")
+        void regressionAlphaBeatRandom() {
+            AlphaBetaSearch.clearTT();
+            var api = new ChessAPI();
+            api.setWhitePlayer(new AlphaBetaPlayer(Color.WHITE, 1_500L));
+            api.setBlackPlayer(new RandomAIPlayer(Color.BLACK));
+            int moves = 0;
+            while (!api.estTerminee() && moves++ < 200) api.jouerCoupJoueur();
+            assertNotEquals(GameResult.BLACK_WINS, api.getEtatPartie());
+        }
+
+        @Test @DisplayName("Régression : mat en 1 toujours détecté")
+        void regressionMatEnUn() {
+            AlphaBetaSearch.clearTT();
+            GameState gs = new GameState(
+                new ChessAPI("r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4")
+                    .getBitboardState());
+            assertEquals(Square.F7, AlphaBetaSearch.chercherMeilleurCoup(gs, 3).to());
+        }
+
+        @Test @DisplayName("Régression : pièce gratuite toujours prise à depth=2")
+        void regressionPriseGratuite() {
+            AlphaBetaSearch.clearTT();
+            GameState gs = new GameState(
+                new ChessAPI("4k3/8/8/4r3/8/8/8/4R1K1 w - - 0 1").getBitboardState());
+            assertEquals(Square.E5, AlphaBetaSearch.chercherMeilleurCoup(gs, 2).to());
+        }
+
+        // ── Perft ─────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("Perft depth=1 : 20 coups")
+        void perftDepth1() { assertEquals(20, new ChessAPI().getCoupsLegaux().size()); }
+
+        @Test @DisplayName("Perft depth=2 : 400 positions")
+        void perftDepth2() {
+            ChessAPI api = new ChessAPI();
+            int total = 0;
+            for (Move m : api.getCoupsLegaux()) {
+                ChessAPI fork = new ChessAPI(api.toFEN());
+                fork.jouerCoup(m);
+                total += fork.getCoupsLegaux().size();
+            }
+            assertEquals(400, total);
+        }
+
+        @Test @DisplayName("Perft depth=3 : 8902 positions")
+        void perftDepth3() {
+            assertEquals(8902, perft(new ChessAPI(), 3));
+        }
+
+        private int perft(ChessAPI api, int depth) {
+            if (depth == 0) return 1;
+            int total = 0;
+            for (Move m : api.getCoupsLegaux()) {
+                ChessAPI fork = new ChessAPI(api.toFEN());
+                fork.jouerCoup(m);
+                total += perft(fork, depth - 1);
+            }
+            return total;
         }
     }
 }

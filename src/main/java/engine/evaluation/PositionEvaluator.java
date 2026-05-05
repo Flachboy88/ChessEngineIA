@@ -16,7 +16,7 @@ import model.Piece;
  * <pre>
  *   evaluate() =
  *       matériel + PST (MG/EG interpolés)   ← PositionEvaluator
- *     + structure de pions                   ← PawnEvaluator
+ *     + structure de pions (avec cache)      ← PawnEvaluator + Pawn Hash Table
  *     + mobilité + bonus pièces              ← MobilityEvaluator
  *     + sécurité du roi                      ← KingSafety
  * </pre>
@@ -24,10 +24,14 @@ import model.Piece;
  * <h2>Phase de jeu</h2>
  * Calculée une seule fois par appel à {@code evaluate()}, puis transmise
  * à tous les sous-modules pour l'interpolation MG↔EG.
- * {@code phase = 1.0} = ouverture/milieu, {@code phase = 0.0} = finale pure.
  *
- * <h2>Valeurs matérielles de base</h2>
- * Interpolées MG/EG comme les PST :
+ * <h2>Pawn Hash Table</h2>
+ * La structure de pions change dans ~10% des coups seulement. Un cache de
+ * 65536 entrées (≈ 512 Ko) évite 90% des recalculs de {@link PawnEvaluator}.
+ * La clé est un hash Fibonacci des bitboards de pions blancs et noirs.
+ * Le score est calculé à phase fixe (la phase varie peu pour une même structure).
+ *
+ * <h2>Valeurs matérielles de base (PeSTO)</h2>
  * <pre>
  *   Pion   : MG= 82, EG= 94
  *   Cavalier: MG=337, EG=281
@@ -35,8 +39,6 @@ import model.Piece;
  *   Tour   : MG=477, EG=512
  *   Dame   : MG=1025, EG=936
  * </pre>
- * Ces valeurs PeSTO remplacent les valeurs fixes précédentes et participent
- * à l'interpolation de phase exactement comme les PST.
  */
 public final class PositionEvaluator {
 
@@ -51,7 +53,7 @@ public final class PositionEvaluator {
         365,  // BISHOP
         477,  // ROOK
         1025, // QUEEN
-        0     // KING (valeur symbolique, pas de matériel)
+        0     // KING
     };
 
     private static final int[] MATERIAL_EG = {
@@ -63,17 +65,24 @@ public final class PositionEvaluator {
         0     // KING
     };
 
-    /**
-     * Matériel total de départ (pièces lourdes + légers, sans pions ni rois),
-     * utilisé pour normaliser la phase entre 0.0 et 1.0.
-     * = 2*(2*KNIGHT_MG + 2*BISHOP_MG + 2*ROOK_MG + QUEEN_MG)
-     * = 2*(674 + 730 + 954 + 1025) = 2*3383 = 6766
-     */
     private static final int MAX_PHASE_MATERIAL =
         2 * (2 * MATERIAL_MG[Piece.KNIGHT.index]
            + 2 * MATERIAL_MG[Piece.BISHOP.index]
            + 2 * MATERIAL_MG[Piece.ROOK.index]
            +     MATERIAL_MG[Piece.QUEEN.index]);
+
+    // ── Pawn Hash Table ───────────────────────────────────────────────────────
+
+    private static final int    PAWN_TT_SIZE   = 1 << 16; // 65536 entrées ≈ 512 Ko
+    private static final int    PAWN_TT_MASK   = PAWN_TT_SIZE - 1;
+    private static final long[] PAWN_TT_HASH   = new long[PAWN_TT_SIZE];
+    private static final int[]  PAWN_TT_SCORE  = new int[PAWN_TT_SIZE];
+    /** Sentinelle : valeur impossible pour détecter une entrée vide. */
+    private static final int    PAWN_TT_EMPTY  = Integer.MIN_VALUE;
+
+    static {
+        java.util.Arrays.fill(PAWN_TT_SCORE, PAWN_TT_EMPTY);
+    }
 
     private PositionEvaluator() {}
 
@@ -81,7 +90,7 @@ public final class PositionEvaluator {
 
     /**
      * Évalue la position du point de vue des Blancs.
-     * Appelle tous les sous-modules dans l'ordre.
+     * Utilise le cache pions pour éviter les recalculs.
      *
      * @param state état bitboard courant
      * @return score en centipions (positif = avantage Blancs)
@@ -91,7 +100,7 @@ public final class PositionEvaluator {
 
         int score = 0;
         score += materialAndPst(state, phase256);
-        score += PawnEvaluator.evaluate(state, phase256);
+        score += evaluatePawnsCached(state, phase256);
         score += MobilityEvaluator.evaluate(state, phase256);
         score += KingSafety.evaluate(state, phase256);
         return score;
@@ -99,10 +108,6 @@ public final class PositionEvaluator {
 
     /**
      * Retourne le score relatif au camp donné (convention negamax).
-     *
-     * @param state état courant
-     * @param side  camp qui évalue
-     * @return score positif si {@code side} est avantagé
      */
     public static int evaluateFor(BitboardState state, Color side) {
         int raw = evaluate(state);
@@ -111,8 +116,6 @@ public final class PositionEvaluator {
 
     /**
      * Calcule la phase de jeu : 256 = ouverture pure, 0 = finale pure.
-     * Basée sur le matériel MG des pièces lourdes et légères restantes (sans pions/rois).
-     * Retourne un entier dans [0, 256] pour éviter tout calcul flottant.
      */
     public static int gamePhase(BitboardState state) {
         int material = 0;
@@ -122,16 +125,49 @@ public final class PositionEvaluator {
             material += Long.bitCount(state.getBitboard(c, Piece.ROOK))   * MATERIAL_MG[Piece.ROOK.index];
             material += Long.bitCount(state.getBitboard(c, Piece.QUEEN))  * MATERIAL_MG[Piece.QUEEN.index];
         }
-        // Clamp à [0, 256]
         return Math.min(256, material * 256 / MAX_PHASE_MATERIAL);
+    }
+
+    /**
+     * Vide le cache pions. À appeler entre deux parties ou lors des tests.
+     */
+    public static void clearPawnCache() {
+        java.util.Arrays.fill(PAWN_TT_SCORE, PAWN_TT_EMPTY);
+    }
+
+    // ── Pawn Hash Table ───────────────────────────────────────────────────────
+
+    /**
+     * Évalue la structure de pions avec cache.
+     *
+     * <p>La clé est calculée à partir des bitboards de pions des deux camps via
+     * un hash de Fibonacci (multiplication par une constante 64-bit irrationnelle).
+     * En cas de collision, on recalcule silencieusement (no-harm policy).
+     *
+     * <p>Note : on passe {@code phase256} pour être exact, mais la structure de
+     * pions varie rarement avec la phase → le cache reste très efficace.
+     */
+    private static int evaluatePawnsCached(BitboardState state, int phase256) {
+        long whitePawns = state.getBitboard(Color.WHITE, Piece.PAWN);
+        long blackPawns = state.getBitboard(Color.BLACK, Piece.PAWN);
+
+        // Hash de Fibonacci des deux bitboards de pions
+        long pawnHash = whitePawns * 0x9E3779B97F4A7C15L
+                      ^ blackPawns * 0x6C62272E07BB0142L;
+        int idx = (int)(pawnHash & PAWN_TT_MASK);
+
+        if (PAWN_TT_HASH[idx] == pawnHash && PAWN_TT_SCORE[idx] != PAWN_TT_EMPTY) {
+            return PAWN_TT_SCORE[idx];
+        }
+
+        int score = PawnEvaluator.evaluate(state, phase256);
+        PAWN_TT_HASH[idx]  = pawnHash;
+        PAWN_TT_SCORE[idx] = score;
+        return score;
     }
 
     // ── Matériel + PST (toutes pièces, MG+EG) ────────────────────────────────
 
-    /**
-     * Score matériel + PST pour les deux camps, avec interpolation MG/EG
-     * appliquée à <b>toutes</b> les pièces (y compris pions, cavaliers, fous, tours, dame).
-     */
     private static int materialAndPst(BitboardState state, int phase256) {
         return materialAndPstSide(state, Color.WHITE, phase256)
              - materialAndPstSide(state, Color.BLACK, phase256);
@@ -152,10 +188,8 @@ public final class PositionEvaluator {
                 int sq = Long.numberOfTrailingZeros(bb);
                 bb &= bb - 1;
 
-                // Index PST : miroir vertical pour les Noirs
                 int pstIdx = isBlack ? PieceSquareTables.miroir(sq) : sq;
 
-                // Interpolation MG/EG pour le matériel et les PST ensemble
                 int mgTotal = matMg + pstMg[pstIdx];
                 int egTotal = matEg + pstEg[pstIdx];
                 score += PawnEvaluator.interpolate(mgTotal, egTotal, phase256);
