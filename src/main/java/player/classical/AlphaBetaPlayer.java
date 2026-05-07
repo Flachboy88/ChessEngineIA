@@ -166,6 +166,18 @@ public final class AlphaBetaPlayer extends AIPlayer {
         return withClockMode(clockMode, 0L);
     }
 
+    // ── Reset entre parties ───────────────────────────────────────────────────
+
+    /**
+     * Réinitialise l'état interne du joueur pour une nouvelle partie.
+     * À appeler avant chaque nouvelle partie pour éviter que le moveNumber
+     * et le flag prevMoveFromBook ne soient pollués par la partie précédente.
+     */
+    public void resetForNewGame() {
+        moveNumber       = 1;
+        prevMoveFromBook = false;
+    }
+
     // ── Logique de sélection ──────────────────────────────────────────────────
 
     @Override
@@ -223,13 +235,10 @@ public final class AlphaBetaPlayer extends AIPlayer {
         int  bestDtz    = Integer.MAX_VALUE;
 
         for (Move move : legalMoves) {
-            // Simuler le coup (sans GameState complet, utiliser applyMove)
             var nextState = rules.MoveGenerator.applyMove(state.getBitboardState(), move);
             var probe = tablebase.probe(nextState);
             if (!probe.isKnown()) return null; // position hors couverture → laisser l'IA
 
-            // Du point de vue de l'adversaire (le camp qui vient de recevoir le coup)
-            // Un WDL adversaire faible = bon pour nous.
             int opponentWdl = -probe.wdl;
             int dtz          = probe.dtz;
 

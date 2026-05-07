@@ -40,6 +40,12 @@ class ChessEngineTest {
 
         @Test @DisplayName("Partie en cours au départ")
         void partieEnCours() { assertEquals(GameResult.IN_PROGRESS, api.getEtatPartie()); }
+
+        @BeforeAll
+        static void silenceLogs() {
+            java.util.logging.Logger.getLogger("engine.tb.SyzygyTablebase")
+                    .setLevel(java.util.logging.Level.OFF);
+        }
     }
 
     @Nested @DisplayName("2. Mouvements des pions")

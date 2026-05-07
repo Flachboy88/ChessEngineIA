@@ -17,7 +17,9 @@ import player.classical.HumanPlayer;
 import player.classical.RandomAIPlayer;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Path;
 import java.util.Objects;
 
 /**
@@ -270,7 +272,12 @@ public class AccueilController {
         return switch (iaIndex) {
             case 0 -> {  // AlphaBeta
                 long timeLimitMs = timeSpinner.getValue() * 1000L;
-                yield new AlphaBetaPlayer(color, timeLimitMs, nom + " (" + timeSpinner.getValue() + "s)");
+                AlphaBetaPlayer p = new AlphaBetaPlayer(color, timeLimitMs, nom + " (" + timeSpinner.getValue() + "s)");
+                try {
+                    var res = getClass().getClassLoader().getResource("opening_books/Performance.bin");
+                    if (res != null) p = p.withOpeningBook(Path.of(res.toURI()));
+                } catch (URISyntaxException ignored) {}
+                yield p;
             }
             case 1 -> new RandomAIPlayer(color, nom, new java.util.Random()); // Random
             default -> new RandomAIPlayer(color, nom, new java.util.Random());

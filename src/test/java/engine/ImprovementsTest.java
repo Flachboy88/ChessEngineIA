@@ -37,6 +37,16 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ImprovementsTest {
 
+    @BeforeAll
+    static void silenceLogs() {
+        java.util.logging.Logger.getLogger("engine.tb.SyzygyTablebase")
+                .setLevel(java.util.logging.Level.OFF);
+        java.util.logging.Logger.getLogger("engine.book.OpeningBook")
+                .setLevel(java.util.logging.Level.OFF);
+        java.util.logging.Logger.getLogger("player.classical.AlphaBetaPlayer")
+                .setLevel(java.util.logging.Level.OFF);
+    }
+
     // =========================================================================
     // 12. Livre d'ouvertures Polyglot
     // =========================================================================

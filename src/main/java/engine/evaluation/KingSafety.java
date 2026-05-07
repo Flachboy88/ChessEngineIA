@@ -42,6 +42,17 @@ public final class KingSafety {
 
     private KingSafety() {}
 
+    // ── API publique ──────────────────────────────────────────────────────────
+
+    /**
+     * Retourne le score de sécurité du roi du point de vue des Blancs.
+     * Score positif = les Blancs sont plus en sécurité.
+     * Multiplié par la phase (évaluation MG principalement).
+     *
+     * @param state état courant
+     * @param phase256 phase de jeu (1.0 = ouverture, 0.0 = finale)
+     * @return score de sécurité pondéré
+     */
     public static int evaluate(BitboardState state, int phase256) {
         int whiteScore = evaluateSide(state, Color.WHITE);
         int blackScore = evaluateSide(state, Color.BLACK);

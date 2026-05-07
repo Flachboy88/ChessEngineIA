@@ -85,6 +85,7 @@ public final class OpeningBook {
     public Optional<Move> probe(BitboardState state) {
         long key = polyglotKey(state);
         List<PolyglotReader.PolyglotEntry> entries = reader.getEntries(key);
+        LOG.info("Probe clé=" + Long.toHexString(key) + " → " + entries.size() + " entrées");
         if (entries.isEmpty()) return Optional.empty();
 
         PolyglotReader.PolyglotEntry chosen = weightedRandom(entries);

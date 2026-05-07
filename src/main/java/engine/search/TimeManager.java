@@ -68,6 +68,7 @@ public final class TimeManager {
     private final long startTime;
     private final long targetTime;     // temps cible calculé
     private final long hardDeadline;   // limite absolue (ne jamais dépasser)
+    private final long fixedDeadline;  // deadline fixe (mode fixedTime), -1 sinon
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ public final class TimeManager {
     public TimeManager(long timeRemainingMs, long incrementMs, int moveNumber,
                        boolean justLeftBook) {
         this.startTime = System.currentTimeMillis();
+        this.fixedDeadline = -1;
 
         // Budget de base
         long base = timeRemainingMs / EXPECTED_MOVES_LEFT
@@ -109,14 +111,18 @@ public final class TimeManager {
      *
      * @param timeLimitMs  budget total pour ce coup (ms)
      */
+    /**
+     * Constructeur interne pour le mode fixedTime.
+     */
+    private TimeManager(long timeLimitMs, long startTime) {
+        this.startTime     = startTime;
+        this.fixedDeadline = startTime + timeLimitMs;
+        this.targetTime    = timeLimitMs;
+        this.hardDeadline  = startTime + timeLimitMs;
+    }
+
     public static TimeManager fixedTime(long timeLimitMs) {
-        return new TimeManager(timeLimitMs * EXPECTED_MOVES_LEFT, 0, 1, false) {
-            @Override public long getDeadline() {
-                return System.currentTimeMillis() - /* startTime */ 0 + timeLimitMs;
-            }
-        };
-        // Note : cette surcharge interne est approximative.
-        // Pour le mode fixedTime, utiliser directement la deadline ci-dessous.
+        return new TimeManager(timeLimitMs, System.currentTimeMillis());
     }
 
     // ── API publique ──────────────────────────────────────────────────────────
@@ -126,6 +132,7 @@ public final class TimeManager {
      * Le moteur s'arrête dès que {@code System.currentTimeMillis() >= deadline}.
      */
     public long getDeadline() {
+        if (fixedDeadline >= 0) return fixedDeadline;
         return startTime + targetTime;
     }
 

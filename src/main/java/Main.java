@@ -8,6 +8,8 @@ import player.classical.AlphaBetaPlayer;
 import player.classical.HumanPlayer;
 import player.classical.RandomAIPlayer;
 
+import java.net.URISyntaxException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Scanner;
 
@@ -86,9 +88,24 @@ public final class Main {
     // IA vs IA
     // =========================================================
 
+    private static Path getBookPath() {
+        try {
+            var res = Main.class.getClassLoader().getResource("opening_books/Performance.bin");
+            if (res != null) return Path.of(res.toURI());
+        } catch (URISyntaxException ignored) {}
+        return null;
+    }
+
+    private static AlphaBetaPlayer createWhitePlayer(long timeMs) {
+        AlphaBetaPlayer player = new AlphaBetaPlayer(Color.WHITE, timeMs);
+        Path book = getBookPath();
+        if (book != null) player = player.withOpeningBook(book);
+        return player;
+    }
+
     private static void lancerPartieIAvsIASilencieuse() {
         ChessAPI api = new ChessAPI();
-        api.setWhitePlayer(new AlphaBetaPlayer(Color.WHITE));
+        api.setWhitePlayer(createWhitePlayer(AlphaBetaPlayer.DEFAULT_TIME_MS));
         api.setBlackPlayer(new RandomAIPlayer(Color.BLACK));
 
         jouerPartieIAVsIA(api, false);
@@ -138,7 +155,7 @@ public final class Main {
             AlphaBetaSearch.clearTT();
 
             ChessAPI api = new ChessAPI();
-            api.setWhitePlayer(new AlphaBetaPlayer(Color.WHITE, timeMs));
+            api.setWhitePlayer(createWhitePlayer(timeMs));
             api.setBlackPlayer(new RandomAIPlayer(Color.BLACK));
 
             long t0 = System.currentTimeMillis();

@@ -25,6 +25,7 @@ import javafx.util.Duration;
 import model.Move;
 import model.Piece;
 import model.Square;
+import player.classical.AlphaBetaPlayer;
 import player.classical.HumanPlayer;
 import player.Player;
 
@@ -99,6 +100,13 @@ public class PartieController {
         return t;
     });
 
+    /**
+     * Identifiant de la partie courante. Incrémenté à chaque "Nouvelle Partie".
+     * Permet d'invalider les coups IA calculés pour la partie précédente
+     * qui arrivent via Platform.runLater() après le reset.
+     */
+    private int gameId = 0;
+
     // ─────────────────────────────────────────────────────────────────────────
 
     public void initialiser(GameState gameState, Player blanc, Player noir) {
@@ -166,19 +174,44 @@ public class PartieController {
 
     @FXML
     private void onNouvellePartie() {
-        // Vider la TT : la nouvelle partie repart d'une position différente,
-        // les entrées précédentes créeraient des faux positifs via le hash Zobrist.
-        AlphaBetaSearch.clearTT();
+        // ── 1. Invalider tout coup IA en vol ──────────────────────────────────
+        // On incrémente gameId AVANT de soumettre quoi que ce soit.
+        // Le Platform.runLater() du coup en cours verra un gameId différent et s'annulera.
+        gameId++;
+        final int currentGameId = gameId;
 
+        // ── 2. Réinitialiser l'état moteur ────────────────────────────────────
+        AlphaBetaSearch.clearTT();
         gameState.reset();
+
+        // ── 3. Réinitialiser l'état interne des joueurs IA ────────────────────
+        // moveNumber et prevMoveFromBook doivent repartir à zéro pour la nouvelle partie.
+        resetJoueurIA(joueurBlanc);
+        resetJoueurIA(joueurNoir);
+
+        // ── 4. Réinitialiser l'état UI ────────────────────────────────────────
         dernierCoup = null;
         histoMoveCount = 0;
         caseSelectionnee = null;
         coupsDepuiSelection = List.of();
+        viderHistorique();
+        mettreAJourUI();
+
+        // ── 5. Lancer le premier tour (IA ou humain) ──────────────────────────
+        jouerTourSiIA(currentGameId);
+    }
+
+    /** Réinitialise les compteurs internes d'un AlphaBetaPlayer entre deux parties. */
+    private void resetJoueurIA(Player joueur) {
+        if (joueur instanceof AlphaBetaPlayer ia) {
+            ia.resetForNewGame();
+        }
+    }
+
+    /** Vide complètement l'historique (children + rowConstraints). */
+    private void viderHistorique() {
         historiqueGrid.getChildren().clear();
         historiqueGrid.getRowConstraints().clear();
-        mettreAJourUI();
-        jouerTourSiIA();
     }
 
     @FXML
@@ -192,6 +225,7 @@ public class PartieController {
     private void onRetourAccueil() {
         // Vider la TT avant de revenir à l'accueil (partie abandonnée)
         AlphaBetaSearch.clearTT();
+        gameId++; // invalider tout coup IA en vol
         executor.shutdownNow();
         try {
             FXMLLoader loader = new FXMLLoader(
@@ -262,11 +296,19 @@ public class PartieController {
         mettreAJourUI();
 
         if (!gameState.getResult().isOver()) {
-            jouerTourSiIA();
+            jouerTourSiIA(gameId);
         }
     }
 
+    /**
+     * Lance le tour de l'IA si c'est son tour, en capturant le gameId courant.
+     * Si au moment où le coup arrive le gameId a changé (nouvelle partie), le coup est ignoré.
+     */
     private void jouerTourSiIA() {
+        jouerTourSiIA(gameId);
+    }
+
+    private void jouerTourSiIA(int expectedGameId) {
         Player joueur = joueurActuel();
         if (joueur instanceof HumanPlayer) return;
         if (gameState.getResult().isOver()) return;
@@ -274,7 +316,12 @@ public class PartieController {
         Timeline delay = new Timeline(new KeyFrame(Duration.millis(400), e -> {
             executor.submit(() -> {
                 Move coup = joueur.getNextMove(gameState);
-                Platform.runLater(() -> jouerCoup(coup));
+                Platform.runLater(() -> {
+                    // Vérifier que la partie n'a pas changé entre le calcul et l'application
+                    if (gameId != expectedGameId) return;
+                    if (gameState.getResult().isOver()) return;
+                    jouerCoup(coup);
+                });
             });
         }));
         delay.play();
