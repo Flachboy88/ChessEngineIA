@@ -2,6 +2,8 @@ package engine.search;
 
 import core.BitboardState;
 import engine.evaluation.PositionEvaluator;
+import engine.tb.SyzygyTablebase;
+import engine.tb.WDL;
 import game.GameState;
 import model.Color;
 import model.Move;
@@ -97,6 +99,10 @@ public final class AlphaBetaSearch {
 
     private static final TranspositionTable TT = new TranspositionTable();
 
+    // ── Tablebases Syzygy (partagées, configurables) ──────────────────────────
+
+    private static volatile SyzygyTablebase tablebase = SyzygyTablebase.disabled();
+
     // ── Contrôle du temps ─────────────────────────────────────────────────────
 
     private static volatile long    deadline   = 0L;
@@ -140,6 +146,20 @@ public final class AlphaBetaSearch {
     public static void clearPawnTT() {
         PositionEvaluator.clearPawnCache();
     }
+
+    /**
+     * Configure les tablebases Syzygy à utiliser dans la recherche.
+     * Les tablebases sont consultées au début de chaque nœud dont le
+     * nombre de pièces est couvert.
+     *
+     * @param tb instance de tablebase (utilisez {@link SyzygyTablebase#disabled()} pour désactiver)
+     */
+    public static void setTablebase(SyzygyTablebase tb) {
+        tablebase = (tb != null) ? tb : SyzygyTablebase.disabled();
+    }
+
+    /** Retourne l'instance de tablebase actuellement configurée. */
+    public static SyzygyTablebase getTablebase() { return tablebase; }
 
     // =========================================================================
     // Normalisation des scores de mat
@@ -329,6 +349,18 @@ public final class AlphaBetaSearch {
 
             long hash = state.getZobristHash();
             if (ply >= MAX_PLY) return PositionEvaluator.evaluateFor(state, side);
+
+            // ── Tablebases Syzygy ─────────────────────────────────────────────
+            // Sonde en priorité si la position est couverte (≤ N pièces).
+            // Retourne un score exact → pas besoin d'aller plus loin.
+            if (tablebase.canProbe(state)) {
+                Integer tbScore = tablebase.probeScore(state, ply, INF);
+                if (tbScore != null) {
+                    // On stocke dans la TT pour que les nœuds parents puissent en bénéficier
+                    TT.store(hash, tbScore, depth, TranspositionTable.EXACT, 0);
+                    return tbScore;
+                }
+            }
 
             // ── TT ────────────────────────────────────────────────────────────
             TTEntry ttEntry       = TT.get(hash);

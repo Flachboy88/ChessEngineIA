@@ -1,0 +1,25 @@
+        @Test @DisplayName("SEE : prise perdante Tour×Dame défendue par cavalier détectée négative")
+        void seePrisePerdante() {
+            // Tour blanche en e1, Dame noire en e5, défendue par Cavalier noir en f3
+            // Tour prend Dame (+900), Cavalier reprend Tour (-500) → net = +400 pour les noirs
+            // Du point de vue blanc : SEE = 900 - 500 = +400... mais attendez :
+            // En fait : Cavalier (320) < Tour (500), donc après Rxe5 Nxe5, les blancs
+            // ont perdu une Tour (500) pour gagner une Dame (900) mais perdent ensuite
+            // la Tour prise par le Cavalier. Net = 900 - 500 = +400 (toujours positif).
+            //
+            // Pour une prise VRAIMENT perdante : il faut que la pièce attaquante soit
+            // plus précieuse que ce qu'elle peut gagner net.
+            // Ex : Tour (500) prend Cavalier (320) défendu par pion (100)
+            // SEE = 320 - 500 + 100... non : SEE = 320 − (500 − 100) = 320 − 400 = −80
+            //
+            // Position : Tour blanche e1, Cavalier noir e5, défendu par pion noir d6
+            ChessAPI api = new ChessAPI("4k3/8/3p4/4n3/8/8/8/4R1K1 w - - 0 1");
+            var bs  = api.getBitboardState();
+            var move = api.getCoups(Square.E1).stream()
+                .filter(m -> m.to() == Square.E5)
+                .findFirst().orElse(null);
+            assertNotNull(move, "La Tour doit pouvoir aller en e5");
+            int seeScore = AlphaBetaSearch.seeCaptureScore(bs, move);
+            assertTrue(seeScore < 0,
+                "SEE Tour×Cavalier défendu par pion doit être négative (perd la Tour pour un Cavalier). Score=" + seeScore);
+        }
