@@ -90,7 +90,7 @@ public final class Main {
 
     private static Path getBookPath() {
         try {
-            var res = Main.class.getClassLoader().getResource("opening_books/Performance.bin");
+            var res = Main.class.getClassLoader().getResource("opening_books/Cerebellum_Light_Poly.bin");
             if (res != null) return Path.of(res.toURI());
         } catch (URISyntaxException ignored) {}
         return null;

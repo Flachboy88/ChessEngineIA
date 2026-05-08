@@ -274,7 +274,7 @@ public class AccueilController {
                 long timeLimitMs = timeSpinner.getValue() * 1000L;
                 AlphaBetaPlayer p = new AlphaBetaPlayer(color, timeLimitMs, nom + " (" + timeSpinner.getValue() + "s)");
                 try {
-                    var res = getClass().getClassLoader().getResource("opening_books/Performance.bin");
+                    var res = getClass().getClassLoader().getResource("opening_books/Cerebellum_Light_Poly.bin");
                     if (res != null) p = p.withOpeningBook(Path.of(res.toURI()));
                 } catch (URISyntaxException ignored) {}
                 yield p;
@@ -291,6 +291,7 @@ public class AccueilController {
     }
 
     private void cacherErreurFen() {
+
         fenError.setVisible(false);
         fenError.setManaged(false);
     }

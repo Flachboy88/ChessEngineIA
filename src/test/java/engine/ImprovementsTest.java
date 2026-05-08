@@ -592,6 +592,285 @@ class ImprovementsTest {
     }
 
     // =========================================================================
+    // 16. Tablebases Syzygy — lecture réelle des fichiers .rtbw
+    // =========================================================================
+
+    /**
+     * Chemin vers le répertoire contenant les vrais fichiers .rtbw téléchargés.
+     * Ajuste si tu déplaces les tables.
+     */
+    static final Path SYZYGY_DIR = Path.of(
+            "D:\\Perso\\programmes perso\\Gith\\ChessOptiIa\\src\\main\\resources\\Syzygy\\3-4-5"
+    );
+
+    /**
+     * Helper : crée une SyzygyTablebase pointant vers les vrais fichiers.
+     * Skip le test automatiquement si le répertoire est absent ou vide.
+     */
+    static SyzygyTablebase realTb() {
+        SyzygyTablebase tb = new SyzygyTablebase(SYZYGY_DIR);
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            tb.isAvailable(),
+            "Fichiers Syzygy absents dans " + SYZYGY_DIR + " — test ignoré"
+        );
+        return tb;
+    }
+
+    @Nested @DisplayName("16. Tablebases Syzygy — fichiers réels .rtbw")
+    class SyzygyRealFileTests {
+
+        // ── Détection du répertoire ───────────────────────────────────────────
+
+        @Test @DisplayName("Répertoire Syzygy détecté et disponible")
+        void repertoireDisponible() {
+            SyzygyTablebase tb = new SyzygyTablebase(SYZYGY_DIR);
+            assertTrue(tb.isAvailable(),
+                "Les fichiers .rtbw doivent être détectés dans " + SYZYGY_DIR);
+        }
+
+        @Test @DisplayName("Nombre de pièces max détecté >= 5")
+        void maxPiecesDetecte() {
+            SyzygyTablebase tb = new SyzygyTablebase(SYZYGY_DIR);
+            assertTrue(tb.getMaxPieces() >= 5,
+                "Attendu >= 5 pièces, obtenu : " + tb.getMaxPieces());
+        }
+
+        @Test @DisplayName("canProbe : vrai pour une position à 3 pièces")
+        void canProbe3Pieces() {
+            SyzygyTablebase tb = realTb();
+            // KQvK : 3 pièces
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/3QK3 w - - 0 1").getBitboardState();
+            assertTrue(tb.canProbe(bs));
+        }
+
+        @Test @DisplayName("canProbe : faux pour une position à 32 pièces")
+        void canProbeFauxPlein() {
+            SyzygyTablebase tb = realTb();
+            var bs = new ChessAPI().getBitboardState(); // 32 pièces
+            assertFalse(tb.canProbe(bs));
+        }
+
+        // ── KQvK ─────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("KQvK : blancs à jouer → WIN")
+        void kqvkBlancAJouer() {
+            SyzygyTablebase tb = realTb();
+            // Roi blanc e1, Dame blanche d1, Roi noir e8
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/3QK3 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "Doit être connu (fichier KQvK.rtbw présent)");
+            assertTrue(wdl.isWin(),   "Blancs avec la dame doivent gagner, obtenu : " + wdl);
+        }
+
+        @Test @DisplayName("KQvK : noirs à jouer → LOSS")
+        void kqvkNoirAJouer() {
+            SyzygyTablebase tb = realTb();
+            // Même position, trait aux noirs
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/3QK3 b - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown());
+            assertTrue(wdl.isLoss(), "Noirs sans matériel doivent perdre, obtenu : " + wdl);
+        }
+
+        @Test @DisplayName("KQvK : dame sur une autre case → toujours WIN")
+        void kqvkDameAutreCase() {
+            SyzygyTablebase tb = realTb();
+            // Roi blanc a1, Dame blanche h8, Roi noir e5
+            var bs = new ChessAPI("7Q/8/8/4k3/8/8/8/K7 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown());
+            assertTrue(wdl.isWin(), "KQvK doit toujours être WIN, obtenu : " + wdl);
+        }
+
+        // ── KRvK ─────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("KRvK : blancs à jouer → WIN")
+        void krvkBlancAJouer() {
+            SyzygyTablebase tb = realTb();
+            // Roi blanc e1, Tour blanche a1, Roi noir e8
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "KRvK doit être connu");
+            assertTrue(wdl.isWin(),   "KRvK doit être WIN pour le camp avec la tour, obtenu : " + wdl);
+        }
+
+        @Test @DisplayName("KRvK : noirs à jouer → LOSS")
+        void krvkNoirAJouer() {
+            SyzygyTablebase tb = realTb();
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/R3K3 b - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown());
+            assertTrue(wdl.isLoss(), "KRvK noirs à jouer → LOSS, obtenu : " + wdl);
+        }
+
+        // ── KBBvK ─────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("KBBvK : blancs à jouer → WIN")
+        void kbbvkBlancAJouer() {
+            SyzygyTablebase tb = realTb();
+            // Roi blanc e1, Fous blancs c1+f1 (couleurs opposées), Roi noir e8
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/2B1KB2 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "KBBvK doit être connu");
+            assertTrue(wdl.isWin(),   "Deux fous doivent gagner, obtenu : " + wdl);
+        }
+
+        // ── KBNvK ─────────────────────────────────────────────────────────────
+
+        @Test @DisplayName("KBNvK : blancs à jouer → WIN")
+        void kbnvkBlancAJouer() {
+            SyzygyTablebase tb = realTb();
+            // Roi blanc e1, Fou blanc c1, Cavalier blanc g1, Roi noir e8
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/2B1K1N1 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "KBNvK doit être connu");
+            assertTrue(wdl.isWin(),   "Fou+cavalier doivent gagner, obtenu : " + wdl);
+        }
+
+        // ── KBvK (matériel insuffisant) ───────────────────────────────────────
+
+        @Test @DisplayName("KBvK : → DRAW (un seul fou insuffisant)")
+        void kbvkDraw() {
+            SyzygyTablebase tb = realTb();
+            // Roi blanc e1, Fou blanc c1, Roi noir e8
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(),  "KBvK doit être connu");
+            assertTrue(wdl.isDraw(),   "Un seul fou = DRAW, obtenu : " + wdl);
+        }
+
+        @Test @DisplayName("KNvK : → DRAW (cavalier seul insuffisant)")
+        void knvkDraw() {
+            SyzygyTablebase tb = realTb();
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/4K1N1 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "KNvK doit être connu");
+            assertTrue(wdl.isDraw(),  "Un cavalier seul = DRAW, obtenu : " + wdl);
+        }
+
+        // ── KPvK (finale de pion) ─────────────────────────────────────────────
+
+        @Test @DisplayName("KPvK : pion blanc en e5, roi blanc devant → WIN")
+        void kpvkWin() {
+            SyzygyTablebase tb = realTb();
+            // Pion avancé avec roi devant = position gagnante classique
+            // Roi blanc e6, Pion blanc e5, Roi noir e8
+            var bs = new ChessAPI("4k3/8/4K3/4P3/8/8/8/8 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "KPvK doit être connu");
+            assertTrue(wdl.isWin(),   "Roi devant pion avancé doit être WIN, obtenu : " + wdl);
+        }
+
+        @Test @DisplayName("KPvK : pion de tour en a-file, roi bloqué → DRAW probable")
+        void kpvkDrawRookPawn() {
+            SyzygyTablebase tb = realTb();
+            // Pion de tour (a-file) avec roi noir en a8 = nulle théorique
+            // Roi blanc b6, Pion blanc a5, Roi noir a8
+            var bs = new ChessAPI("k7/8/1K6/P7/8/8/8/8 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "KPvK pion de tour doit être connu");
+            assertTrue(wdl.isDraw(),  "Pion de tour bloqué = DRAW théorique, obtenu : " + wdl);
+        }
+
+        // ── KQvKR (positions complexes) ───────────────────────────────────────
+
+        @Test @DisplayName("KQvKR : dame vs tour → WIN en général")
+        void kqvkrWin() {
+            SyzygyTablebase tb = realTb();
+            // Position KQvKR standard — la dame gagne en général
+            var bs = new ChessAPI("4k3/4r3/8/8/8/8/8/3QK3 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "KQvKR doit être connu");
+            // La dame gagne théoriquement contre la tour
+            assertTrue(wdl.isWin() || wdl.wdl == WDL.CURSED_WIN,
+                "KQvKR doit être WIN ou CURSED_WIN, obtenu : " + wdl);
+        }
+
+        // ── KRvKB (tour vs fou) ───────────────────────────────────────────────
+
+        @Test @DisplayName("KRvKB : résultat connu (DRAW ou WIN selon position)")
+        void krvkbConnu() {
+            SyzygyTablebase tb = realTb();
+            // Tour vs Fou — souvent nulle mais pas toujours
+            var bs = new ChessAPI("4k3/4b3/8/8/8/8/8/R3K3 w - - 0 1").getBitboardState();
+            WDL wdl = tb.probe(bs);
+            assertTrue(wdl.isKnown(), "KRvKB doit être connu");
+            // On vérifie juste que le résultat est cohérent (ne pas planter)
+            assertTrue(wdl.wdl >= WDL.LOSS && wdl.wdl <= WDL.WIN,
+                "Valeur WDL invalide : " + wdl.wdl);
+        }
+
+        // ── probeScore intégration ─────────────────────────────────────────────
+
+        @Test @DisplayName("probeScore : KQvK blanc → score positif")
+        void probeScorePositif() {
+            SyzygyTablebase tb = realTb();
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/3QK3 w - - 0 1").getBitboardState();
+            Integer score = tb.probeScore(bs, 0, 1_000_000);
+            assertNotNull(score, "probeScore ne doit pas retourner null pour KQvK");
+            assertTrue(score > 0, "Score KQvK blancs doit être positif, obtenu : " + score);
+        }
+
+        @Test @DisplayName("probeScore : KBvK → score nul (0)")
+        void probeScoreNul() {
+            SyzygyTablebase tb = realTb();
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1").getBitboardState();
+            Integer score = tb.probeScore(bs, 0, 1_000_000);
+            assertNotNull(score);
+            assertEquals(0, score, "KBvK = DRAW → score 0, obtenu : " + score);
+        }
+
+        // ── Intégration AlphaBetaSearch ───────────────────────────────────────
+
+        @Test @DisplayName("AlphaBetaSearch avec TB réelle : KQvK → coup trouvé")
+        void searchAvecTbReelle() {
+            SyzygyTablebase tb = realTb();
+            AlphaBetaSearch.setTablebase(tb);
+            AlphaBetaSearch.clearTT();
+            var gs = new GameState(new ChessAPI("4k3/8/8/8/8/8/8/3QK3 w - - 0 1").getBitboardState());
+            Move best = AlphaBetaSearch.chercherMeilleurCoup(gs, 3);
+            assertNotNull(best, "L'IA doit trouver un coup avec les tablebases");
+            // Réinitialiser pour ne pas polluer les autres tests
+            AlphaBetaSearch.setTablebase(SyzygyTablebase.disabled());
+            AlphaBetaSearch.clearTT();
+        }
+
+        @Test @DisplayName("AlphaBetaPlayer avec TB réelle : probeTablebases retourne un coup")
+        void playerAvecTbReelle() {
+            SyzygyTablebase tb = realTb();
+            AlphaBetaPlayer player = new AlphaBetaPlayer(Color.WHITE, 3_000L)
+                .withTablebases(tb);
+            assertTrue(player.hasTablebases());
+            // KQvK : les tablebases doivent choisir le coup directement
+            var gs = new GameState(new ChessAPI("4k3/8/8/8/8/8/8/3QK3 w - - 0 1").getBitboardState());
+            Move m = player.getNextMove(gs);
+            assertNotNull(m, "Player avec TB doit jouer un coup");
+        }
+
+        // ── Cohérence multi-sondes ─────────────────────────────────────────────
+
+        @Test @DisplayName("Cohérence : mêmes résultats en rejouant la sonde")
+        void cohérenceReproductible() {
+            SyzygyTablebase tb = realTb();
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/3QK3 w - - 0 1").getBitboardState();
+            WDL wdl1 = tb.probe(bs);
+            WDL wdl2 = tb.probe(bs);
+            assertEquals(wdl1.wdl, wdl2.wdl, "La sonde doit être déterministe");
+        }
+
+        @Test @DisplayName("Cohérence : sonde après SyzygyRtbwParser.clearCache()")
+        void cohérenceAprésClearCache() {
+            SyzygyTablebase tb = realTb();
+            var bs = new ChessAPI("4k3/8/8/8/8/8/8/3QK3 w - - 0 1").getBitboardState();
+            WDL wdl1 = tb.probe(bs);
+            engine.tb.SyzygyRtbwParser.clearCache();
+            WDL wdl2 = tb.probe(bs);
+            assertEquals(wdl1.wdl, wdl2.wdl,
+                "Résultat identique après vidage du cache fichiers");
+        }
+    }
+
+    // =========================================================================
     // 15. Régression — intégration des 3 améliorations
     // =========================================================================
 
