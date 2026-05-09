@@ -5,12 +5,17 @@ import engine.evaluation.PositionEvaluator;
 import engine.search.AlphaBetaSearch;
 import engine.search.TimeManager;
 import engine.tb.SyzygyTablebase;
+import engine.tb.WDL;
 import game.GameState;
 import model.Color;
 import model.Move;
 import player.AIPlayer;
 
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
 import java.util.logging.Logger;
@@ -103,6 +108,58 @@ public final class AlphaBetaPlayer extends AIPlayer {
         super(color, name);
         if (timeLimitMs < 100) throw new IllegalArgumentException("Le temps doit être >= 100ms");
         this.timeLimitMs = timeLimitMs;
+        // Chargement automatique des tablebases Syzygy si disponibles
+        SyzygyTablebase tb = findDefaultTablebase();
+        if (tb.isAvailable()) {
+            this.tablebase = tb;
+            LOG.info("Tablebases chargées automatiquement : " + tb.getMaxPieces() + " pièces max");
+        }
+    }
+
+    /**
+     * Cherche les tablebases Syzygy dans les emplacements standards :
+     * 1. Classpath : resources/Syzygy/3-4-5
+     * 2. Répertoire courant : syzygy/ ou Syzygy/3-4-5
+     *
+     * @return une instance disponible, ou {@link SyzygyTablebase#disabled()} si introuvable.
+     */
+    private static SyzygyTablebase findDefaultTablebase() {
+        // 1. Classpath (JAR ou resources Maven)
+        String[] classpathCandidates = {
+            "Syzygy/3-4-5",
+            "Syzygy",
+            "syzygy/3-4-5",
+            "syzygy"
+        };
+        for (String candidate : classpathCandidates) {
+            try {
+                URL url = AlphaBetaPlayer.class.getClassLoader().getResource(candidate);
+                if (url != null) {
+                    Path p = Paths.get(url.toURI());
+                    if (Files.isDirectory(p)) {
+                        SyzygyTablebase tb = new SyzygyTablebase(p);
+                        if (tb.isAvailable()) return tb;
+                    }
+                }
+            } catch (URISyntaxException | IllegalArgumentException ignored) {}
+        }
+        // 2. Répertoire courant
+        String[] fsCandidates = {
+            "src/main/resources/Syzygy/3-4-5",
+            "src/main/resources/Syzygy",
+            "syzygy/3-4-5",
+            "syzygy",
+            "Syzygy/3-4-5",
+            "Syzygy"
+        };
+        for (String candidate : fsCandidates) {
+            Path p = Path.of(candidate);
+            if (Files.isDirectory(p)) {
+                SyzygyTablebase tb = new SyzygyTablebase(p);
+                if (tb.isAvailable()) return tb;
+            }
+        }
+        return SyzygyTablebase.disabled();
     }
 
     // ── Builders (fluent API) ─────────────────────────────────────────────────
@@ -197,7 +254,11 @@ public final class AlphaBetaPlayer extends AIPlayer {
         boolean justLeftBook = prevMoveFromBook;
         prevMoveFromBook = false;
 
-        // ── 2. Tablebases ──────────────────────────────────────────────────────
+        // ── 2. Tablebases (fichiers réels uniquement) ──────────────────────────
+        // On ne court-circuite via TB que si de vrais fichiers .rtbw sont disponibles.
+        // Sans fichiers (disabled / builtInOnly), on laisse AlphaBetaSearch utiliser
+        // les built-ins intégrés à la recherche — ce qui évite les boucles dues au
+        // clearTT() répété et assure une progression réelle vers le mat.
         if (tablebase.isAvailable() && tablebase.canProbe(state.getBitboardState())) {
             Move tbMove = probeTablebases(state, legalMoves);
             if (tbMove != null) {
@@ -219,36 +280,59 @@ public final class AlphaBetaPlayer extends AIPlayer {
         moveNumber++;
 
         // ── 4. Recherche alpha-bêta ────────────────────────────────────────────
+        // On configure la TB dans AlphaBetaSearch pour que les built-ins soient
+        // utilisés pendant la recherche (guide l'évaluation sans bloquer les règles
+        // de nullité dans GameState).
+        AlphaBetaSearch.setTablebase(tablebase);
         return AlphaBetaSearch.chercherMeilleurCoupTemps(state, budget);
     }
 
     // ── Sonde des tablebases pour la sélection de coup ────────────────────────
 
     /**
-     * Cherche le meilleur coup parmi les legaux en sondant les tablebases.
+     * Cherche le meilleur coup parmi les légaux en sondant les tablebases (fichiers réels).
      * On joue le coup qui amène l'adversaire dans la position la plus défavorable (WDL minimal).
      * En cas d'égalité WDL, on préfère le DTZ le plus faible (convertir plus vite).
      */
     private Move probeTablebases(GameState state, List<Move> legalMoves) {
-        Move bestMove   = null;
-        int  bestWdl    = Integer.MIN_VALUE;
-        int  bestDtz    = Integer.MAX_VALUE;
+        Move bestMove    = null;
+        int  bestWdl     = Integer.MIN_VALUE;
+        int  bestDtz     = Integer.MAX_VALUE;
+        int  bestEval    = Integer.MIN_VALUE;
 
         for (Move move : legalMoves) {
             var nextState = rules.MoveGenerator.applyMove(state.getBitboardState(), move);
-            var probe = tablebase.probe(nextState);
-            if (!probe.isKnown()) return null; // position hors couverture → laisser l'IA
+            var probe     = tablebase.probe(nextState);
+            if (!probe.isKnown()) continue;
 
             int opponentWdl = -probe.wdl;
-            int dtz          = probe.dtz;
+            int dtz         = probe.dtz;
 
-            if (opponentWdl > bestWdl || (opponentWdl == bestWdl && dtz < bestDtz)) {
-                bestWdl  = opponentWdl;
-                bestDtz  = dtz;
-                bestMove = move;
+            // Capture = progrès garanti vers la conversion
+            boolean isCapture = Long.bitCount(nextState.getAllOccupancy())
+                                < Long.bitCount(state.getBitboardState().getAllOccupancy());
+            if (isCapture && dtz < 0) dtz = 0;
+
+            // Bris d'égalité par évaluation statique quand DTZ absent
+            // (permet de progresser vers le mat même sans fichiers DTZ)
+            int eval = engine.evaluation.PositionEvaluator.evaluateFor(
+                           nextState, state.getBitboardState().getSideToMove());
+
+            int dtzCmp = (dtz >= 0) ? dtz : 99;
+
+            boolean better =
+                opponentWdl > bestWdl
+                || (opponentWdl == bestWdl && dtzCmp < bestDtz)
+                || (opponentWdl == bestWdl && dtzCmp == bestDtz && eval > bestEval);
+
+            if (better) {
+                bestWdl   = opponentWdl;
+                bestDtz   = dtzCmp;
+                bestEval  = eval;
+                bestMove  = move;
             }
         }
-        return bestMove;
+        return bestMove; // null si aucun coup couvert
     }
 
     // ── Accesseurs ────────────────────────────────────────────────────────────

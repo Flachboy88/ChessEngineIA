@@ -277,9 +277,9 @@ public class AccueilController {
                     var res = getClass().getClassLoader().getResource("opening_books/Cerebellum_Light_Poly.bin");
                     if (res != null) p = p.withOpeningBook(Path.of(res.toURI()));
                 } catch (URISyntaxException ignored) {}
-                // Livre de fin : tablebases Syzygy
+                // Livre de fin : tablebases Syzygy (sous-dossier 3-4-5)
                 try {
-                    var tbRes = getClass().getClassLoader().getResource("Syzygy");
+                    var tbRes = getClass().getClassLoader().getResource("Syzygy/3-4-5");
                     if (tbRes != null) p = p.withTablebases(Path.of(tbRes.toURI()));
                 } catch (URISyntaxException ignored) {}
                 yield p;

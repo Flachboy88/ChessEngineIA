@@ -98,7 +98,7 @@ public final class Main {
 
     private static Path getTbPath() {
         try {
-            var res = Main.class.getClassLoader().getResource("Syzygy");
+            var res = Main.class.getClassLoader().getResource("Syzygy/3-4-5");
             if (res != null) return Path.of(res.toURI());
         } catch (URISyntaxException ignored) {}
         return null;

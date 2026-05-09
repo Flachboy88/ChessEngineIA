@@ -351,14 +351,42 @@ public final class AlphaBetaSearch {
             if (ply >= MAX_PLY) return PositionEvaluator.evaluateFor(state, side);
 
             // ── Tablebases Syzygy ─────────────────────────────────────────────
-            // Sonde en priorité si la position est couverte (≤ N pièces).
-            // Retourne un score exact → pas besoin d'aller plus loin.
+            // Deux modes selon la disponibilité des fichiers :
+            //
+            // 1. Fichiers réels (.rtbw) disponibles → coupure immédiate avec score exact.
+            //    La sonde DTZ garantit une progression vers le mat sans boucle.
+            //
+            // 2. Built-ins seuls (disabled / pas de fichiers) → on utilise le WDL
+            //    uniquement comme borne inférieure alpha. On NE coupe PAS immédiatement
+            //    car le score "mateScore - ply" est identique pour toutes les positions
+            //    gagnantes (pas de DTZ), ce qui pousserait la TT à mémoriser des scores
+            //    équivalents et l'IA à osciller en boucle.
             if (tablebase.canProbe(state)) {
-                Integer tbScore = tablebase.probeScore(state, ply, INF);
-                if (tbScore != null) {
-                    // On stocke dans la TT pour que les nœuds parents puissent en bénéficier
-                    TT.store(hash, tbScore, depth, TranspositionTable.EXACT, 0);
-                    return tbScore;
+                if (tablebase.isAvailable()) {
+                    // Fichiers réels : coupure immédiate, sûr car le DTZ est connu
+                    Integer tbScore = tablebase.probeScore(state, ply, INF);
+                    if (tbScore != null) {
+                        TT.store(hash, tbScore, depth, TranspositionTable.EXACT, 0);
+                        return tbScore;
+                    }
+                } else {
+                    // Built-ins seulement : orienter la recherche sans couper
+                    // (pas de DTZ → pas de garantie de progression si on coupe)
+                    WDL wdl = tablebase.probe(state);
+                    if (wdl.isKnown()) {
+                        if (wdl.isDraw()) {
+                            beta = Math.min(beta, 0);
+                            if (alpha >= beta) return 0;
+                        } else if (wdl.isWin()) {
+                            // Position gagnante : alpha au moins positif pour guider l'IA
+                            alpha = Math.max(alpha, 1);
+                            if (alpha >= beta) return alpha;
+                        } else if (wdl.isLoss()) {
+                            beta = Math.min(beta, -1);
+                            if (alpha >= beta) return beta;
+                        }
+                        // Continue la recherche pour trouver le vrai mat
+                    }
                 }
             }
 

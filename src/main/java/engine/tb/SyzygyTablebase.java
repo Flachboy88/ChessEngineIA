@@ -6,7 +6,6 @@ import model.Piece;
 
 import java.io.IOException;
 import java.nio.file.*;
-import java.util.EnumSet;
 import java.util.logging.Logger;
 
 /**
@@ -51,6 +50,12 @@ public final class SyzygyTablebase {
 
     private static final Logger LOG = Logger.getLogger(SyzygyTablebase.class.getName());
 
+    /**
+     * Nombre de pièces maximal couvert par les built-ins intégrés (sans fichiers).
+     * Les built-ins couvrent KQvK, KRvK, KBBvK, KBNvK et les cas de matériel insuffisant.
+     */
+    private static final int BUILTIN_MAX_PIECES = 4;
+
     /** Nombre de pièces maximal pour lequel des fichiers ont été détectés. */
     private final int maxPieces;
 
@@ -59,6 +64,9 @@ public final class SyzygyTablebase {
 
     /** True si des fichiers Syzygy ont été détectés et peuvent être utilisés. */
     private final boolean available;
+
+    /** True si les sondes intégrées (built-in) sont actives mais sans fichiers. */
+    private final boolean builtInOnly;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -71,20 +79,22 @@ public final class SyzygyTablebase {
     public SyzygyTablebase(Path tbDirectory) {
         this.tbDir = tbDirectory;
         if (tbDirectory == null || !Files.isDirectory(tbDirectory)) {
-            this.maxPieces = 0;
-            this.available = false;
-            LOG.info("Tablebases Syzygy : désactivées (répertoire non fourni ou inexistant)");
+            this.maxPieces   = BUILTIN_MAX_PIECES;
+            this.available   = false;
+            this.builtInOnly = true;
+            LOG.info("Tablebases Syzygy : desactivees (repertoire non fourni ou inexistant) - built-ins actifs");
             return;
         }
 
         int detected = detectMaxPieces(tbDirectory);
-        this.maxPieces = detected;
-        this.available = detected >= 3;
+        this.maxPieces   = detected;
+        this.available   = detected >= 3;
+        this.builtInOnly = false;
 
         if (available) {
-            LOG.info("Tablebases Syzygy : " + detected + " pièces max détectées dans " + tbDirectory);
+            LOG.info("Tablebases Syzygy : " + detected + " pieces max detectees dans " + tbDirectory);
         } else {
-            LOG.info("Tablebases Syzygy : aucun fichier .rtbw détecté dans " + tbDirectory);
+            LOG.info("Tablebases Syzygy : aucun fichier .rtbw detecte dans " + tbDirectory);
         }
     }
 
@@ -100,42 +110,52 @@ public final class SyzygyTablebase {
      *
      * <p>Retourne {@link WDL#unknown()} si :
      * <ul>
-     *   <li>Les tablebases ne sont pas disponibles</li>
+     *   <li>Les tablebases ne sont pas disponibles et la position dépasse BUILTIN_MAX_PIECES</li>
      *   <li>Le nombre de pièces dépasse {@code maxPieces}</li>
-     *   <li>Des pions sont présents et aucun fichier DTZ n'est disponible</li>
      * </ul>
      *
      * @param state position à évaluer
      * @return résultat WDL ou {@link WDL#unknown()}
      */
     public WDL probe(BitboardState state) {
-        if (!available) return WDL.unknown();
-
         int pieceCount = Long.bitCount(state.getAllOccupancy());
+
+        if (builtInOnly) {
+            // Pas de fichiers : on tente uniquement les sondes intégrées,
+            // mais seulement pour les positions ≤ BUILTIN_MAX_PIECES.
+            if (pieceCount > BUILTIN_MAX_PIECES) return WDL.unknown();
+            return probeBuiltIn(state);
+        }
+        if (!available) return WDL.unknown();
         if (pieceCount > maxPieces) return WDL.unknown();
-
-        // Vérification : pas de pions si seuls des fichiers sans pions sont disponibles
-        // (les fichiers KPK, KRPvKP, etc. requièrent un traitement spécial)
-
         return probeInternal(state);
     }
 
     /**
-     * Indique si les tablebases sont disponibles.
+     * Indique si les tablebases sont disponibles (fichiers réels détectés).
      */
     public boolean isAvailable() { return available; }
 
     /**
      * Retourne le nombre maximal de pièces couvert par les tablebases chargées.
+     * Retourne BUILTIN_MAX_PIECES si seuls les built-ins sont actifs.
      */
     public int getMaxPieces() { return maxPieces; }
 
     /**
      * Indique si une position donnée peut être sondée (nombre de pièces OK).
+     *
+     * <p>Pour les built-ins : seulement si pieceCount ≤ BUILTIN_MAX_PIECES.
+     * Pour les fichiers réels : seulement si available et pieceCount ≤ maxPieces.
      */
     public boolean canProbe(BitboardState state) {
+        int pieceCount = Long.bitCount(state.getAllOccupancy());
+        if (builtInOnly) {
+            // Les built-ins ne couvrent que les positions ≤ BUILTIN_MAX_PIECES pièces
+            return pieceCount <= BUILTIN_MAX_PIECES;
+        }
         if (!available) return false;
-        return Long.bitCount(state.getAllOccupancy()) <= maxPieces;
+        return pieceCount <= maxPieces;
     }
 
     // ── Score pour l'évaluateur statique ─────────────────────────────────────
@@ -250,6 +270,9 @@ public final class SyzygyTablebase {
      * Couvre : KQvK, KRvK, KBBvK, KBNvK (mat forcé),
      *          KBvK, KNvK (matériel insuffisant → nulle).
      * Ces positions peuvent être détectées sans fichiers binaires.
+     *
+     * <p>IMPORTANT : cette méthode ne doit être appelée que pour les positions
+     * ≤ BUILTIN_MAX_PIECES pièces (vérification faite dans {@link #probe}).
      */
     private WDL probeBuiltIn(BitboardState state) {
         // Compter les pièces par type (hors rois)

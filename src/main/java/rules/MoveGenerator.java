@@ -149,6 +149,13 @@ public class MoveGenerator {
             addMovesFromTargets(from, targets, captures);
         }
 
+        // Exclure la capture du roi adverse
+        long enemyKing = state.getBitboard(color.opposite(), Piece.KING);
+        if (enemyKing != 0) {
+            int kingSquare = Bitboard.lsb(enemyKing);
+            captures.removeIf(m -> m.to().index == kingSquare);
+        }
+
         return captures;
     }
 
@@ -163,6 +170,13 @@ public class MoveGenerator {
         generateQueenMoves(state, color, moves);
         generateKingMoves(state, color, moves);
         generateCastlingMoves(state, color, moves);
+
+        // Supprimer les captures du roi adverse (coup illegal : le roi ne peut pas etre capture)
+        long enemyKing = state.getBitboard(color.opposite(), Piece.KING);
+        if (enemyKing != 0) {
+            int kingSquare = Bitboard.lsb(enemyKing);
+            moves.removeIf(m -> m.to().index == kingSquare);
+        }
 
         return moves;
     }
