@@ -96,10 +96,20 @@ public final class Main {
         return null;
     }
 
+    private static Path getTbPath() {
+        try {
+            var res = Main.class.getClassLoader().getResource("Syzygy");
+            if (res != null) return Path.of(res.toURI());
+        } catch (URISyntaxException ignored) {}
+        return null;
+    }
+
     private static AlphaBetaPlayer createWhitePlayer(long timeMs) {
         AlphaBetaPlayer player = new AlphaBetaPlayer(Color.WHITE, timeMs);
         Path book = getBookPath();
         if (book != null) player = player.withOpeningBook(book);
+        Path tb = getTbPath();
+        if (tb != null) player = player.withTablebases(tb);
         return player;
     }
 

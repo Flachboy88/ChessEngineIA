@@ -125,23 +125,29 @@ public final class SyzygyRtbwParser {
     }
 
     /**
-     * Ouvre et mappe un fichier .rtbw, puis lit son en-tête.
+     * Ouvre et mappe un fichier .rtbw, puis détecte son format.
      *
-     * <h3>Structure de l'en-tête Syzygy réelle</h3>
+     * <h3>Format réel des fichiers Syzygy WDL (.rtbw)</h3>
      * <pre>
-     * [0]  4 octets  magic         0x5D23E871
-     * [4]  4 octets  num_tables    (généralement 2)
-     * [8]  4 octets  data_size     taille totale des données en octets
-     * [12] 4 octets  réservé/flags
-     * [16] 4 octets  offset_bloc_0 (offset en octets depuis le début du fichier)
-     * [20] 4 octets  offset_bloc_1
+     * [0-3]  magic  0x5D23E871 (little-endian)
+     * [4]    tb_flags : bit0=split (2 sous-tables), bit1=has_pawns
+     * [5+]   descripteurs de pièces (variable) puis en-têtes PairsData Huffman
      * </pre>
-     * Les offsets des blocs pointent directement vers les données nibble.
+     *
+     * <p>Les fichiers Syzygy utilisent une compression Huffman sur des symboles
+     * composés (séquences de nibbles WDL). Le décodage complet requiert de parser
+     * les tables sympat/symlen et le sparse index, ce qui représente ~500 lignes
+     * de code C porté depuis tbprobe.c (Ronald de Man / Fathom).
+     *
+     * <p>Cette implémentation lit uniquement le magic et les flags, et marque le
+     * fichier comme "compressé" pour que {@link #readNibble} retourne UNKNOWN
+     * silencieusement. Les sondes intégrées de {@link SyzygyTablebase#probeBuiltIn}
+     * couvrent les finales les plus fréquentes sans fichiers binaires.
      */
     private static TableFile openFile(Path path) throws IOException {
         try (FileChannel ch = FileChannel.open(path, StandardOpenOption.READ)) {
             long fileSize = ch.size();
-            if (fileSize < 24) throw new IOException("Fichier trop court : " + fileSize);
+            if (fileSize < 8) throw new IOException("Fichier trop court : " + fileSize);
 
             MappedByteBuffer buf = ch.map(FileChannel.MapMode.READ_ONLY, 0, fileSize);
             buf.order(ByteOrder.LITTLE_ENDIAN);
@@ -151,58 +157,21 @@ public final class SyzygyRtbwParser {
             if (magic != MAGIC_WDL)
                 throw new IOException(String.format("Magic invalide : 0x%08X", magic));
 
-            // ── En-tête ───────────────────────────────────────────────────────
-            // Octets 4-7 : num_tables ou flags selon la version — on lit les deux
-            // structures possibles et on choisit les offsets valides.
-            //
-            // Structure A (la plus courante, fichiers 3-5 pièces Lichess) :
-            //   [4]  int  num_tables   (valeur 2)
-            //   [8]  int  data_size    (taille bloc 0 + bloc 1)
-            //   [12] int  réservé
-            //   [16] int  offset_bloc_0
-            //   [20] int  offset_bloc_1
-            //
-            // Structure B (variante compressée) :
-            //   [4]  byte flags
-            //   [5]  byte num_strong
-            //   [6]  byte num_weak
-            //   [7]  byte réservé
-            //   [8]  long data_size (8 octets)
-            //   [16] int  offset_bloc_0
-            //   [20] int  offset_bloc_1
-            //
-            // On détecte la structure en regardant num_tables (doit être 1 ou 2)
+            // ── Flags globaux [4] ──────────────────────────────────────────────
+            // bit0 = split (2 sous-tables : STM fort et STM faible)
+            // bit1 = has_pawns
+            int tbFlags = buf.get(4) & 0xFF;
+            boolean split    = (tbFlags & 1) != 0;
+            boolean hasPawns = (tbFlags & 2) != 0;
 
-            int numTables = buf.getInt(4);  // Structure A
-            long offset0, offset1;
+            LOG.fine(String.format("Ouvert %s : fileSize=%d flags=0x%02X split=%b pawns=%b",
+                     path.getFileName(), fileSize, tbFlags, split, hasPawns));
 
-            if (numTables >= 1 && numTables <= 4) {
-                // Structure A : offsets à [16] et [20]
-                offset0 = Integer.toUnsignedLong(buf.getInt(16));
-                offset1 = Integer.toUnsignedLong(buf.getInt(20));
-            } else {
-                // Structure B : offsets à [16] et [20] aussi (même position !)
-                // La seule différence est l'interprétation des octets 4-15.
-                offset0 = Integer.toUnsignedLong(buf.getInt(16));
-                offset1 = Integer.toUnsignedLong(buf.getInt(20));
-            }
-
-            // Validation : les offsets doivent être dans les bornes du fichier
-            if (offset0 >= fileSize || offset1 >= fileSize || offset0 < 16 || offset1 < 16) {
-                // Fallback : certains fichiers ont les données immédiatement après un en-tête
-                // de 5 ints (20 octets). On recalcule data_size pour trouver les blocs.
-                long dataSize = Integer.toUnsignedLong(buf.getInt(8));
-                offset0 = 24;                     // après 6 ints d'en-tête
-                offset1 = 24 + (dataSize / 2);    // deuxième moitié
-            }
-
-            // Taille d'un bloc = (fileSize - offset0) / 2  (approximation)
-            long blockSize = (fileSize - offset0) / 2;
-
-            LOG.fine(String.format("Ouvert %s : fileSize=%d, off0=%d, off1=%d, blockSize=%d",
-                     path.getFileName(), fileSize, offset0, offset1, blockSize));
-
-            return new TableFile(buf, offset0, offset1, blockSize, fileSize);
+            // Le vrai décodage Huffman n'est pas encore implémenté.
+            // On retourne un TableFile marqué comme « compressé Huffman » avec
+            // des offsets/blockSize symboliques ; readNibble retournera FILE_UNKNOWN.
+            // Les sondes intégrées (probeBuiltIn) prennent le relais.
+            return new TableFile(buf, 0L, 0L, 0L, fileSize);
         }
     }
 
@@ -211,75 +180,18 @@ public final class SyzygyRtbwParser {
     // =========================================================================
 
     /**
-     * Lit la valeur WDL (4 bits) à l'index donné dans le bloc donné.
+     * Tente de lire la valeur WDL depuis le fichier mappé.
      *
-     * <p>Format nibble : 2 valeurs par octet.
-     * <ul>
-     *   <li>Index pair  → bits 0-3 (nibble bas)</li>
-     *   <li>Index impair → bits 4-7 (nibble haut)</li>
-     * </ul>
+     * <p>Les fichiers Syzygy 3-4-5 utilisent une compression Huffman sur des symboles
+     * composés. Cette implémentation retourne {@link #FILE_UNKNOWN} tant que le
+     * décodeur Huffman complet n'est pas porté depuis tbprobe.c.
+     * Les sondes intégrées de {@link SyzygyTablebase#probeBuiltIn} couvrent les
+     * finales les plus fréquentes en attendant.
      */
     private static int readNibble(TableFile tf, int blockIdx, long index) {
-        long base = (blockIdx == 0) ? tf.offset0 : tf.offset1;
-
-        // Vérification de compression : premier octet du bloc, bit 0
-        byte flagByte = tf.buf.get((int) base);
-        boolean compressed = (flagByte & 1) != 0;
-
-        // Les données nibble commencent après 4 octets de métadonnées du bloc
-        long dataStart = base + 4;
-
-        // Validation de l'index
-        long maxIdx = (tf.blockSize - 4) * 2;
-        if (index >= maxIdx) {
-            LOG.warning("Index hors borne : idx=" + index + " max=" + maxIdx
-                        + " bloc=" + blockIdx);
-            // Les fichiers Syzygy utilisent une compression Huffman : l'index de position
-            // correct (calculé sur l'espace non-compressé) dépasse la taille brute du fichier.
-            // Retourner UNKNOWN pour laisser les sondes builtin ou l'évaluateur normal décider.
-            return FILE_UNKNOWN;
-        }
-
-        if (!compressed) {
-            // ── Nibbles directs ───────────────────────────────────────────────
-            long byteOff = dataStart + (index >>> 1);
-            if (byteOff >= tf.fileSize) return FILE_DRAW;
-            int b = tf.buf.get((int) byteOff) & 0xFF;
-            return (int) ((index & 1L) == 0 ? (b & 0x0F) : (b >>> 4));
-        } else {
-            // ── Blocs compressés (super-blocs de 64) ─────────────────────────
-            return readCompressedNibble(tf, dataStart, index);
-        }
-    }
-
-    /**
-     * Lecture dans un bloc compressé Syzygy.
-     * Format : groupes de 64 positions, chaque groupe précédé de 2 octets de symbole.
-     */
-    private static int readCompressedNibble(TableFile tf, long dataStart, long index) {
-        // Taille d'un groupe : 2 octets header + 32 octets de données (64 nibbles)
-        long groupSize   = 34L;
-        long groupIdx    = index / 64;
-        long posInGroup  = index % 64;
-        long groupStart  = dataStart + groupIdx * groupSize;
-
-        if (groupStart + 2 >= tf.fileSize) return FILE_DRAW;
-
-        int sym = (tf.buf.get((int) groupStart) & 0xFF)
-                | ((tf.buf.get((int)(groupStart + 1)) & 0x01) << 8);
-
-        if (sym == 0) {
-            // Toutes les 64 valeurs sont identiques → lire la valeur unique
-            if (groupStart + 2 >= tf.fileSize) return FILE_DRAW;
-            return tf.buf.get((int)(groupStart + 2)) & 0x0F;
-        }
-
-        // Données nibble directes dans le groupe
-        long nibbleStart = groupStart + 2;
-        long byteOff     = nibbleStart + (posInGroup >>> 1);
-        if (byteOff >= tf.fileSize) return FILE_DRAW;
-        int b = tf.buf.get((int) byteOff) & 0xFF;
-        return (int) ((posInGroup & 1L) == 0 ? (b & 0x0F) : (b >>> 4));
+        // Décodage Huffman Syzygy non encore implémenté.
+        // Retour silencieux de FILE_UNKNOWN → probeBuiltIn prend le relais.
+        return FILE_UNKNOWN;
     }
 
     // =========================================================================

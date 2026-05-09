@@ -277,6 +277,11 @@ public class AccueilController {
                     var res = getClass().getClassLoader().getResource("opening_books/Cerebellum_Light_Poly.bin");
                     if (res != null) p = p.withOpeningBook(Path.of(res.toURI()));
                 } catch (URISyntaxException ignored) {}
+                // Livre de fin : tablebases Syzygy
+                try {
+                    var tbRes = getClass().getClassLoader().getResource("Syzygy");
+                    if (tbRes != null) p = p.withTablebases(Path.of(tbRes.toURI()));
+                } catch (URISyntaxException ignored) {}
                 yield p;
             }
             case 1 -> new RandomAIPlayer(color, nom, new java.util.Random()); // Random

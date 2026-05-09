@@ -312,6 +312,54 @@ public final class SyzygyTablebase {
             return whiteSide ? WDL.loss() : WDL.win();
         }
 
+        // ── KRvKB (tour vs fou) → DRAW avec jeu parfait ───────────────────────
+        if (wR == 1 && wB == 0 && wQ == 0 && wN == 0 && wP == 0
+                    && bB == 1 && bR == 0 && bQ == 0 && bN == 0 && bP == 0) {
+            return WDL.draw();
+        }
+        if (bR == 1 && bB == 0 && bQ == 0 && bN == 0 && bP == 0
+                    && wB == 1 && wR == 0 && wQ == 0 && wN == 0 && wP == 0) {
+            return WDL.draw();
+        }
+
+        // ── KRvKN (tour vs cavalier) → DRAW avec jeu parfait ─────────────────
+        if (wR == 1 && wN == 0 && wQ == 0 && wB == 0 && wP == 0
+                    && bN == 1 && bR == 0 && bQ == 0 && bB == 0 && bP == 0) {
+            return WDL.draw();
+        }
+        if (bR == 1 && bN == 0 && bQ == 0 && bB == 0 && bP == 0
+                    && wN == 1 && wR == 0 && wQ == 0 && wB == 0 && wP == 0) {
+            return WDL.draw();
+        }
+
+        // ── KNvKB / KBvKN (pièces mineures différentes) → DRAW ───────────────
+        if (wN == 1 && wB == 0 && wQ == 0 && wR == 0 && wP == 0
+                    && bB == 1 && bN == 0 && bQ == 0 && bR == 0 && bP == 0) {
+            return WDL.draw();
+        }
+        if (bN == 1 && bB == 0 && bQ == 0 && bR == 0 && bP == 0
+                    && wB == 1 && wN == 0 && wQ == 0 && wR == 0 && wP == 0) {
+            return WDL.draw();
+        }
+
+        // ── KRvKR (tours égales) → DRAW ───────────────────────────────────────
+        if (wR == 1 && wQ == 0 && wB == 0 && wN == 0 && wP == 0
+                    && bR == 1 && bQ == 0 && bB == 0 && bN == 0 && bP == 0) {
+            return WDL.draw();
+        }
+
+        // ── KQvKQ (dames égales) → DRAW ───────────────────────────────────────
+        if (wQ == 1 && wR == 0 && wB == 0 && wN == 0 && wP == 0
+                    && bQ == 1 && bR == 0 && bB == 0 && bN == 0 && bP == 0) {
+            return WDL.draw();
+        }
+
+        // ── KBvKB (même ou couleurs opposées) → DRAW ─────────────────────────
+        if (wB == 1 && wQ == 0 && wR == 0 && wN == 0 && wP == 0
+                    && bB == 1 && bQ == 0 && bR == 0 && bN == 0 && bP == 0) {
+            return WDL.draw();
+        }
+
         // ── KQvKR (dame vs tour) → WIN pour le camp avec la dame ─────────────
         // La dame gagne théoriquement contre la tour seule.
         // Quelques rares positions sont CURSED_WIN (règle des 50 coups),
