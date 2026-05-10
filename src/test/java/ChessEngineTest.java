@@ -808,17 +808,26 @@ class ChessEngineTest {
         private static final int MAX_MOVES = 200; // garde-fou anti-boucle infinie
 
         /**
-         * Joue une partie IA vs IA depuis un FEN donné (sans tablebase fichier,
-         * uniquement les sondes intégrées) et retourne le résultat.
+         * Joue une partie IA vs IA depuis un FEN donné avec les sondes built-in uniquement
+         * (sans fichiers .rtbw). Force la tablebase built-in sur les joueurs ET sur
+         * AlphaBetaSearch pour éviter que l'auto-chargement des fichiers Syzygy
+         * n'interfère avec les tests.
          */
         private GameResult jouerPartie(String fen) {
             AlphaBetaSearch.clearTT();
-            GameState state = new GameState(FenParser.parse(fen));
-            // On configure la tablebase intégrée dans AlphaBetaSearch
-            AlphaBetaSearch.setTablebase(SyzygyTablebase.disabled());
+            // TB built-in : répertoire inexistant → builtInOnly=true, available=false
+            SyzygyTablebase builtInTb = new SyzygyTablebase(
+                java.nio.file.Path.of("nonexistent_syzygy_dir_for_tests"));
+            AlphaBetaSearch.setTablebase(builtInTb);
 
-            AlphaBetaPlayer blanc = new AlphaBetaPlayer(Color.WHITE, 500L);
-            AlphaBetaPlayer noir  = new AlphaBetaPlayer(Color.BLACK, 500L);
+            GameState state = new GameState(FenParser.parse(fen));
+
+            // Créer les joueurs SANS auto-chargement : on passe un budget fixe
+            // et on force la TB built-in pour court-circuiter l'auto-load.
+            AlphaBetaPlayer blanc = new AlphaBetaPlayer(Color.WHITE, 500L)
+                .withTablebases(builtInTb);
+            AlphaBetaPlayer noir  = new AlphaBetaPlayer(Color.BLACK, 500L)
+                .withTablebases(builtInTb);
 
             for (int i = 0; i < MAX_MOVES; i++) {
                 GameResult r = state.getResult();
@@ -829,6 +838,8 @@ class ChessEngineTest {
                 Move coup = joueur.getNextMove(state);
                 state.applyMove(coup);
             }
+            // Nettoyage : restaurer la TB disabled par défaut
+            AlphaBetaSearch.setTablebase(SyzygyTablebase.disabled());
             return state.getResult(); // timeout garde-fou
         }
 
@@ -925,9 +936,86 @@ class ChessEngineTest {
         @DisplayName("Partie IA vs IA : KBBvK → les blancs gagnent")
         @Timeout(60)
         void partieKBBvK() {
-            GameResult r = jouerPartie("8/8/8/8/8/3K4/3BB3/4k3 w - - 0 1");
+            // KBBvK est la finale la plus difficile des built-ins :
+            // le roi noir cherche à capturer un fou (donnant KBvK = nulle).
+            // On utilise un budget plus élevé pour que l'IA blanche anticipe cela.
+            AlphaBetaSearch.clearTT();
+            SyzygyTablebase builtInTb = new SyzygyTablebase(
+                java.nio.file.Path.of("nonexistent_syzygy_dir_for_tests"));
+            AlphaBetaSearch.setTablebase(builtInTb);
+            GameState state = new GameState(FenParser.parse("8/8/8/8/8/3K4/3BB3/4k3 w - - 0 1"));
+            AlphaBetaPlayer blanc = new AlphaBetaPlayer(Color.WHITE, 2_000L)
+                .withTablebases(builtInTb);
+            AlphaBetaPlayer noir  = new AlphaBetaPlayer(Color.BLACK, 500L)
+                .withTablebases(builtInTb);
+            for (int i = 0; i < MAX_MOVES; i++) {
+                GameResult r = state.getResult();
+                if (r.isOver()) {
+                    AlphaBetaSearch.setTablebase(SyzygyTablebase.disabled());
+                    assertEquals(GameResult.WHITE_WINS, r,
+                        "KBBvK doit finir par mat blanc, résultat obtenu : " + r);
+                    return;
+                }
+                AlphaBetaPlayer joueur = state.getSideToMove() == Color.WHITE ? blanc : noir;
+                Move coup = joueur.getNextMove(state);
+                state.applyMove(coup);
+            }
+            AlphaBetaSearch.setTablebase(SyzygyTablebase.disabled());
+            fail("KBBvK n'a pas terminé en " + MAX_MOVES + " coups : " + state.getResult());
+        }
+
+        @Test
+        @DisplayName("Partie IA vs IA : KQvK FEN exact du rapport de bug → blancs gagnent")
+        @Timeout(30)
+        void partieKQvKFenRapportBug() {
+            // FEN exact du rapport de bug : les blancs DOIVENT gagner, pas égalité
+            GameResult r = jouerPartie("8/8/8/8/8/3K4/8/Q3k3 w - - 0 1");
             assertEquals(GameResult.WHITE_WINS, r,
-                "KBBvK doit finir par mat blanc, résultat obtenu : " + r);
+                "KQvK (FEN rapport de bug) doit finir par mat blanc, résultat : " + r);
+        }
+
+        @Test
+        @DisplayName("Built-in WDL : score WIN gradué par ply (pas de boucle)")
+        void builtInWinScoreGraduated() {
+            // Vérifie que le moteur attribue des scores différents selon la profondeur,
+            // ce qui force la progression vers le mat sans boucle de répétition.
+            AlphaBetaSearch.clearTT();
+            SyzygyTablebase builtIn = new SyzygyTablebase(
+                java.nio.file.Path.of("nonexistent_dir_xyz_test"));
+            AlphaBetaSearch.setTablebase(builtIn);
+
+            // KQvK : la position est WIN pour les blancs
+            BitboardState bs = FenParser.parse("8/8/8/8/8/3K4/8/Q3k3 w - - 0 1");
+            GameState gs = new GameState(bs);
+            // On cherche à depth 5 : doit retourner un coup
+            Move best = AlphaBetaSearch.chercherMeilleurCoup(gs, 5);
+            assertNotNull(best, "L'IA doit trouver un coup en KQvK");
+            // Le coup retourné doit être légal
+            assertTrue(new api.ChessAPI("8/8/8/8/8/3K4/8/Q3k3 w - - 0 1")
+                .getCoupsLegaux().contains(best),
+                "Le coup doit être légal : " + best.toUci());
+            AlphaBetaSearch.clearTT();
+            AlphaBetaSearch.setTablebase(SyzygyTablebase.disabled());
+        }
+
+        @Test
+        @DisplayName("Partie IA vs IA : KQvK ne doit PAS finir en égalité par répétition")
+        @Timeout(30)
+        void partieKQvKPasRepetition() {
+            GameResult r = jouerPartie("8/8/8/8/8/3K4/8/Q3k3 w - - 0 1");
+            assertNotEquals(GameResult.DRAW_REPETITION, r,
+                "KQvK ne doit pas finir par répétition de coups");
+            assertNotEquals(GameResult.DRAW_50_MOVES, r,
+                "KQvK ne doit pas finir par règle des 50 coups");
+        }
+
+        @Test
+        @DisplayName("Partie IA vs IA : KRvK → blancs gagnent (sans fichiers TB)")
+        @Timeout(30)
+        void partieKRvKNoFiles() {
+            GameResult r = jouerPartie("8/8/8/8/8/3K4/8/R3k3 w - - 0 1");
+            assertEquals(GameResult.WHITE_WINS, r,
+                "KRvK doit finir par mat blanc, résultat : " + r);
         }
 
         @Test

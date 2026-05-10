@@ -370,22 +370,28 @@ public final class AlphaBetaSearch {
                         return tbScore;
                     }
                 } else {
-                    // Built-ins seulement : orienter la recherche sans couper
-                    // (pas de DTZ → pas de garantie de progression si on coupe)
+                    // Built-ins seulement : on utilise le WDL uniquement comme
+                    // borne de fenêtre pour empêcher l'alpha-bêta de considérer
+                    // des coups qui mènent à une position perdante ou nulle.
+                    // L'évaluateur de finale (PositionEvaluator.evaluateEndgame)
+                    // fournit désormais le gradient positionnel nécessaire pour
+                    // progresser vers le mat sans boucle.
                     WDL wdl = tablebase.probe(state);
                     if (wdl.isKnown()) {
                         if (wdl.isDraw()) {
-                            beta = Math.min(beta, 0);
-                            if (alpha >= beta) return 0;
+                            // Nulle certaine : couper à 0.
+                            return 0;
                         } else if (wdl.isWin()) {
-                            // Position gagnante : alpha au moins positif pour guider l'IA
+                            // Victoire certaine : au moins mieux que 0.
+                            // L'évaluateur de finale fournit le vrai gradient.
                             alpha = Math.max(alpha, 1);
                             if (alpha >= beta) return alpha;
                         } else if (wdl.isLoss()) {
+                            // Défaite certaine : au pire -1.
                             beta = Math.min(beta, -1);
                             if (alpha >= beta) return beta;
                         }
-                        // Continue la recherche pour trouver le vrai mat
+                        // Continue : l'évaluateur normal prend le relais
                     }
                 }
             }

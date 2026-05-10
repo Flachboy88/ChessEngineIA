@@ -98,12 +98,148 @@ public final class PositionEvaluator {
     public static int evaluate(BitboardState state) {
         int phase256 = gamePhase(state);
 
+        // ── Évaluation de finale spécialisée (KXvK) ──────────────────────────
+        // En finale avec forte asymétrie matérielle (dame/tour/2fous vs rien),
+        // l'évaluateur standard (PST+mobilité) ne suffit pas : il donne le même
+        // score matériel dans toutes les positions et l'IA oscille.
+        // L'évaluateur de finale encode la connaissance échiquéenne :
+        //   - Pousser le roi adverse vers un bord/coin
+        //   - Rapprocher le roi fort
+        // Ce bonus s'ajoute au score matériel pour créer un gradient continu.
+        int endgameBonus = evaluateEndgame(state);
+        if (endgameBonus != 0) {
+            // On retourne uniquement le score endgame dans les finales pures :
+            // matériel + endgame guide l'IA de façon monotone vers le mat.
+            return materialAndPst(state, phase256) + endgameBonus;
+        }
+
         int score = 0;
         score += materialAndPst(state, phase256);
         score += evaluatePawnsCached(state, phase256);
         score += MobilityEvaluator.evaluate(state, phase256);
         score += KingSafety.evaluate(state, phase256);
         return score;
+    }
+
+    // ── Tables de distance bord/coin pour les finales ─────────────────────────
+
+    /**
+     * Distance d'une case au bord (0 = bord, 3 = centre).
+     * Utilisée pour pousser le roi adverse vers le bord.
+     */
+    private static final int[] EDGE_DISTANCE = new int[64];
+
+    /**
+     * Distance d'une case au coin le plus proche (0 = coin, 6 = centre max).
+     * Utilisée pour KBBvK (mat forcé uniquement dans un coin).
+     */
+    private static final int[] CORNER_DISTANCE = new int[64];
+
+    static {
+        for (int sq = 0; sq < 64; sq++) {
+            int f = sq & 7;          // colonne 0-7
+            int r = sq >> 3;         // rang 0-7
+            int distEdge = Math.min(Math.min(f, 7 - f), Math.min(r, 7 - r));
+            EDGE_DISTANCE[sq] = distEdge; // 0 = bord, 3 = centre
+            int cornerDist = Math.min(
+                Math.max(f, r),              // coin A8 (0,7) ou A1 (0,0)
+                Math.min(Math.max(7-f, r),   // coin H8 (7,7)
+                         Math.min(Math.max(f, 7-r),   // coin A1
+                                  Math.max(7-f, 7-r))) // coin H1
+            );
+            CORNER_DISTANCE[sq] = cornerDist;
+        }
+    }
+
+    /**
+     * Distance de Chebyshev entre deux cases (nombre de coups de roi minimum).
+     */
+    private static int kingDistance(int sq1, int sq2) {
+        int df = Math.abs((sq1 & 7) - (sq2 & 7));
+        int dr = Math.abs((sq1 >> 3) - (sq2 >> 3));
+        return Math.max(df, dr);
+    }
+
+    /**
+     * Évaluateur spécialisé pour les finales à fort avantage matériel.
+     * Retourne 0 si non applicable (laisse l'évaluateur standard travailler).
+     *
+     * <p>Couvre : KQvK, KRvK, KBBvK — les cas gérés par les built-ins.
+     * Le score retourné est du point de vue des Blancs.
+     *
+     * <p>Formule : MATERIEL_BASE + bonus_bord(roi_faible) + bonus_proximite_rois
+     * Le bonus est conçu pour être strictement monotone : plus le roi faible
+     * est au bord et les rois sont proches, plus le score est élevé.
+     * Cela crée un gradient continu que l'alpha-bêta peut exploiter.
+     */
+    private static int evaluateEndgame(BitboardState state) {
+        int wQ = Long.bitCount(state.getBitboard(Color.WHITE, Piece.QUEEN));
+        int wR = Long.bitCount(state.getBitboard(Color.WHITE, Piece.ROOK));
+        int wB = Long.bitCount(state.getBitboard(Color.WHITE, Piece.BISHOP));
+        int wN = Long.bitCount(state.getBitboard(Color.WHITE, Piece.KNIGHT));
+        int wP = Long.bitCount(state.getBitboard(Color.WHITE, Piece.PAWN));
+        int bQ = Long.bitCount(state.getBitboard(Color.BLACK, Piece.QUEEN));
+        int bR = Long.bitCount(state.getBitboard(Color.BLACK, Piece.ROOK));
+        int bB = Long.bitCount(state.getBitboard(Color.BLACK, Piece.BISHOP));
+        int bN = Long.bitCount(state.getBitboard(Color.BLACK, Piece.KNIGHT));
+        int bP = Long.bitCount(state.getBitboard(Color.BLACK, Piece.PAWN));
+
+        int wKing = Long.numberOfTrailingZeros(state.getBitboard(Color.WHITE, Piece.KING));
+        int bKing = Long.numberOfTrailingZeros(state.getBitboard(Color.BLACK, Piece.KING));
+        int kingDist = kingDistance(wKing, bKing);
+
+        // ── KQvK : Blancs gagnent ─────────────────────────────────────────────
+        if (wQ == 1 && wR == 0 && wB == 0 && wN == 0 && wP == 0
+                    && bQ == 0 && bR == 0 && bB == 0 && bN == 0 && bP == 0) {
+            // Roi noir doit être au bord (EDGE_DISTANCE=0), rois proches
+            int bEdge = EDGE_DISTANCE[bKing];   // 0=bord, 3=centre — on veut 0
+            int bonus = 900                      // valeur dame
+                + (3 - bEdge) * 20              // +60 si au bord, 0 si au centre
+                + (14 - kingDist) * 4;          // rois proches = meilleur
+            return bonus;
+        }
+        // ── KQvK : Noirs gagnent (symétrique) ────────────────────────────────
+        if (bQ == 1 && bR == 0 && bB == 0 && bN == 0 && bP == 0
+                    && wQ == 0 && wR == 0 && wB == 0 && wN == 0 && wP == 0) {
+            int wEdge = EDGE_DISTANCE[wKing];
+            int bonus = 900 + (3 - wEdge) * 20 + (14 - kingDist) * 4;
+            return -bonus;
+        }
+
+        // ── KRvK : Blancs gagnent ─────────────────────────────────────────────
+        if (wR == 1 && wQ == 0 && wB == 0 && wN == 0 && wP == 0
+                    && bQ == 0 && bR == 0 && bB == 0 && bN == 0 && bP == 0) {
+            int bEdge = EDGE_DISTANCE[bKing];
+            int bonus = 500
+                + (3 - bEdge) * 20
+                + (14 - kingDist) * 4;
+            return bonus;
+        }
+        if (bR == 1 && bQ == 0 && bB == 0 && bN == 0 && bP == 0
+                    && wQ == 0 && wR == 0 && wB == 0 && wN == 0 && wP == 0) {
+            int wEdge = EDGE_DISTANCE[wKing];
+            int bonus = 500 + (3 - wEdge) * 20 + (14 - kingDist) * 4;
+            return -bonus;
+        }
+
+        // ── KBBvK : Blancs gagnent (mat dans un coin de la couleur d'un fou) ──
+        // Ici on pousse le roi adverse vers un coin quelconque d'abord.
+        if (wB == 2 && wQ == 0 && wR == 0 && wN == 0 && wP == 0
+                    && bQ == 0 && bR == 0 && bB == 0 && bN == 0 && bP == 0) {
+            int bCorner = CORNER_DISTANCE[bKing]; // 0=coin, max=6
+            int bonus = 600                        // 2 fous valent ~730 mais mat possible
+                + (6 - bCorner) * 20              // pousser vers un coin
+                + (14 - kingDist) * 4;
+            return bonus;
+        }
+        if (bB == 2 && bQ == 0 && bR == 0 && bN == 0 && bP == 0
+                    && wQ == 0 && wR == 0 && wB == 0 && wN == 0 && wP == 0) {
+            int wCorner = CORNER_DISTANCE[wKing];
+            int bonus = 600 + (6 - wCorner) * 20 + (14 - kingDist) * 4;
+            return -bonus;
+        }
+
+        return 0; // pas une finale spécialisée
     }
 
     /**

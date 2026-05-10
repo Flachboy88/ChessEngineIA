@@ -109,11 +109,11 @@ public final class GameState {
 
         // Ne pas déclarer nulle (50 coups / répétition) si la tablebase sait que
         // la position est théoriquement gagnante — l'IA doit continuer à jouer.
-        // IMPORTANT : on ne consulte les built-ins que si la TB est réellement disponible
-        // (fichiers chargés). Les built-ins seuls sur une TB "disabled" bloqueraient
-        // la règle des 50 coups sur toutes les positions ≤ N pièces.
+        // EXCEPTION : si halfMoveClock >= 100, la règle des 50 coups s'applique
+        // inconditionnellement selon les règles FIDE, même si la TB dit WIN.
+        // (La FIDE ne prévoit pas d'exception pour les positions TB gagnantes.)
         boolean tbWin = isTbWin();
-        if (!tbWin && current.getHalfMoveClock() >= 100) return GameResult.DRAW_50_MOVES;
+        if (current.getHalfMoveClock() >= 100) return GameResult.DRAW_50_MOVES;
 
         // La répétition triple ne s'applique PAS si la TB confirme une victoire forcée.
         // Mais la répétition est vérifiée AVANT de déclarer nulle pour garder la cohérence
