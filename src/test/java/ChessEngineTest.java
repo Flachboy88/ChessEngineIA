@@ -663,7 +663,7 @@ class ChessEngineTest {
         void lmpEviteSacrifice() {
             AlphaBetaSearch.clearTT();
             GameState gs = new GameState(
-                new ChessAPI("3r4/8/8/8/8/8/3P4/3QK3 w - - 0 1").getBitboardState());
+                new ChessAPI("3r2k1/8/8/8/8/8/3P4/3QK3 w - - 0 1").getBitboardState());
             assertNotEquals("d1d8", AlphaBetaSearch.chercherMeilleurCoup(gs, 4).toUci());
         }
 

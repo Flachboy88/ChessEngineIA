@@ -112,13 +112,12 @@ public final class GameState {
         // EXCEPTION : si halfMoveClock >= 100, la règle des 50 coups s'applique
         // inconditionnellement selon les règles FIDE, même si la TB dit WIN.
         // (La FIDE ne prévoit pas d'exception pour les positions TB gagnantes.)
-        boolean tbWin = isTbWin();
+        boolean tbDecided = isTbDecided();
         if (current.getHalfMoveClock() >= 100) return GameResult.DRAW_50_MOVES;
 
-        // La répétition triple ne s'applique PAS si la TB confirme une victoire forcée.
-        // Mais la répétition est vérifiée AVANT de déclarer nulle pour garder la cohérence
-        // dans les positions théoriquement nulles (KRvKB, etc.).
-        if (!tbWin && isThreefoldRepetition()) return GameResult.DRAW_REPETITION;
+        // La répétition triple ne s'applique PAS si la TB confirme une position décidée
+        // (victoire ou défaite forcée) — le camp perdant ne peut pas voler une nulle.
+        if (!tbDecided && isThreefoldRepetition()) return GameResult.DRAW_REPETITION;
 
         return GameResult.IN_PROGRESS;
     }
@@ -182,14 +181,14 @@ public final class GameState {
      * gagnante pour l'un ou l'autre des camps.
      *
      * IMPORTANT : on n'utilise PAS les built-ins ici, car ils sont actifs même sur une TB
-     * "disabled" (builtInOnly=true) et bloqueraient la règle des 50 coups sur toutes les
-     * finales simples. On ne bloque les règles de nullité que si de vrais fichiers .rtbw
-     * sont disponibles et confirment une victoire forcée.
+     * Les built-ins sont aussi consultés : sans DTZ ils ne bloquent pas la règle
+     * des 50 coups, mais ils suffisent pour identifier les positions décidées
+     * (KQvK, KRvK, KBBvK) et bloquer la répétition triple dans ces finales.
+     * On bloque pour les deux camps (win ET loss) : le camp perdant ne doit
+     * pas pouvoir "voler" une nulle par répétition dans une position perdue.
      */
-    private boolean isTbWin() {
+    private boolean isTbDecided() {
         SyzygyTablebase tb = AlphaBetaSearch.getTablebase();
-        // On ne consulte que si la TB a de vrais fichiers (available=true)
-        if (!tb.isAvailable()) return false;
         if (!tb.canProbe(current)) return false;
         WDL wdl = tb.probe(current);
         return wdl.isKnown() && !wdl.isDraw();

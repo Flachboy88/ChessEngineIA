@@ -599,9 +599,7 @@ class ImprovementsTest {
      * Chemin vers le répertoire contenant les vrais fichiers .rtbw téléchargés.
      * Ajuste si tu déplaces les tables.
      */
-    static final Path SYZYGY_DIR = Path.of(
-            "D:\\Perso\\programmes perso\\Gith\\ChessOptiIa\\src\\main\\resources\\Syzygy\\3-4-5"
-    );
+    static final Path SYZYGY_DIR = Path.of("src", "main", "resources", "Syzygy", "3-4-5");
 
     /**
      * Helper : crée une SyzygyTablebase pointant vers les vrais fichiers.

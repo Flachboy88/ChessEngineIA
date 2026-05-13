@@ -186,6 +186,7 @@ public final class PositionEvaluator {
 
         int wKing = Long.numberOfTrailingZeros(state.getBitboard(Color.WHITE, Piece.KING));
         int bKing = Long.numberOfTrailingZeros(state.getBitboard(Color.BLACK, Piece.KING));
+        if (wKing > 63 || bKing > 63) return 0;
         int kingDist = kingDistance(wKing, bKing);
 
         // ── KQvK : Blancs gagnent ─────────────────────────────────────────────

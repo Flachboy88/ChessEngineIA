@@ -370,28 +370,22 @@ public final class AlphaBetaSearch {
                         return tbScore;
                     }
                 } else {
-                    // Built-ins seulement : on utilise le WDL uniquement comme
-                    // borne de fenêtre pour empêcher l'alpha-bêta de considérer
-                    // des coups qui mènent à une position perdante ou nulle.
-                    // L'évaluateur de finale (PositionEvaluator.evaluateEndgame)
-                    // fournit désormais le gradient positionnel nécessaire pour
-                    // progresser vers le mat sans boucle.
+                    // Built-ins seulement : on utilise le WDL comme borne de
+                    // fenêtre. L'évaluateur de finale fournit le gradient
+                    // positionnel pour progresser vers le mat.
                     WDL wdl = tablebase.probe(state);
                     if (wdl.isKnown()) {
                         if (wdl.isDraw()) {
-                            // Nulle certaine : couper à 0.
                             return 0;
                         } else if (wdl.isWin()) {
-                            // Victoire certaine : au moins mieux que 0.
-                            // L'évaluateur de finale fournit le vrai gradient.
-                            alpha = Math.max(alpha, 1);
+                            // Victoire certaine : borne suffisante pour rejeter
+                            // toute ligne menant à une nulle ou une perte.
+                            alpha = Math.max(alpha, 200);
                             if (alpha >= beta) return alpha;
                         } else if (wdl.isLoss()) {
-                            // Défaite certaine : au pire -1.
-                            beta = Math.min(beta, -1);
+                            beta = Math.min(beta, -200);
                             if (alpha >= beta) return beta;
                         }
-                        // Continue : l'évaluateur normal prend le relais
                     }
                 }
             }
