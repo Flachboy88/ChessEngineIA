@@ -599,7 +599,15 @@ class ImprovementsTest {
      * Chemin vers le répertoire contenant les vrais fichiers .rtbw téléchargés.
      * Ajuste si tu déplaces les tables.
      */
-    static final Path SYZYGY_DIR = Path.of("src", "main", "resources", "Syzygy", "3-4-5");
+    static final Path SYZYGY_DIR = resolveSyzygyDir();
+
+    private static Path resolveSyzygyDir() {
+        var res = ImprovementsTest.class.getClassLoader().getResource("Syzygy/3-4-5");
+        if (res != null) {
+            try { return Path.of(res.toURI()); } catch (Exception ignored) {}
+        }
+        return Path.of("src", "main", "resources", "Syzygy", "3-4-5");
+    }
 
     /**
      * Helper : crée une SyzygyTablebase pointant vers les vrais fichiers.
